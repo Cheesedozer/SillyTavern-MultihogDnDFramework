@@ -68,6 +68,7 @@ import {
 let _routerRunning = false;
 let _routerNormalRunCount = 0; // tracks completed normal (non-cleanup) passes for auto-cleanup interval
 let _routerController = null; // AbortController for the active router pass
+let _routerCleanupTimer = null; // Delayed auto-cleanup belongs to the pass that queued it.
 let _worldProgressionController = null; // AbortController for the active World Progression pass
 
 /** Returns true while a router pass is actively running. */
@@ -79,6 +80,10 @@ export function isRouterRunning() { return _routerRunning; }
  * late applyAction / watermark persist cannot target the arriving chat.
  */
 export function stopRouterPass() {
+    if (_routerCleanupTimer !== null) {
+        clearTimeout(_routerCleanupTimer);
+        _routerCleanupTimer = null;
+    }
     if (_routerController) {
         try { _routerController.abort(); } catch (_) { /* ignore */ }
         _routerController = null;
@@ -1194,8 +1199,8 @@ export async function restoreCampaignLocationsBook(snapshot, ctx = SillyTavern.g
     return true;
 }
 
-async function finalizeRouterHistorySnapshot(runId) {
-    if (!runId) return;
+async function finalizeRouterHistorySnapshot(runId, canCommit = () => true) {
+    if (!runId || !canCommit()) return;
     const settings = getSettings();
     const snapshot = (settings.routerHistory || []).find(entry => entry?.runId === runId);
     if (!snapshot) return;
@@ -1208,6 +1213,7 @@ async function finalizeRouterHistorySnapshot(runId) {
     const chatId = snapshot.chatId || getRouterChatId();
     const ownedNames = chatId ? (settings.chatStates?.[chatId]?.campaignBooks || []) : [];
     const registryNames = await getWorldInfoNamesSafe({ fullProbe: false });
+    if (!canCommit()) return;
     const currentNames = [...new Set([...ownedNames, ...registryNames])]
         .filter(name => bookBelongsToPrefix(name, prefix) && !isSkeletonBookName(name));
     const before = new Set(getLorebookSnapshotNames(snapshot));
@@ -1439,9 +1445,7 @@ export async function runRouterPass(narrativeOutput, manualPrompt = null, custom
         // save through getActiveChatId() — both become the arriving chat after
         // a switch. stopRouterPass() aborts this signal from onChatChanged.
         const passChatId = getActiveChatId();
-        if (_routerController) {
-            try { _routerController.abort(); } catch (_) { /* ignore */ }
-        }
+        stopRouterPass();
         _routerController = new AbortController();
         const _routerSignal = _routerController.signal;
         const ownsChat = () => canCommitPassForChat(passChatId, getActiveChatId(), { aborted: _routerSignal.aborted });
@@ -1609,6 +1613,7 @@ export async function runRouterPass(narrativeOutput, manualPrompt = null, custom
         async function commitOwnedAction(action) {
             assertOwnsChat();
             const result = await applyAction(action, archiveBooks, currentTime, breadcrumb, isManual, { canCommit: ownsChat });
+            assertOwnsChat();
             if (result?.status === 'chat_changed') {
                 const err = new Error('Active chat changed');
                 err.name = 'AbortError';
@@ -2721,7 +2726,7 @@ ${recordCategoryGuidance}`;
 
         // Record the exact book-level delta while the pass is still the newest action.
         // Rollback can then remove only books proven to have been created by this pass.
-        await finalizeRouterHistorySnapshot(_routerSnapshotRunId);
+        await finalizeRouterHistorySnapshot(_routerSnapshotRunId, ownsChat);
         assertOwnsChat();
 
         // Manual passes don't go through onGenerationEnded's throttle reset — treat like an auto run.
@@ -2751,7 +2756,10 @@ ${recordCategoryGuidance}`;
             if (shouldAutoCleanup) {
                 broadcastStep('thought', `🧹 Auto-cleanup: ${bloatedCount} bloated entr${bloatedCount > 1 ? 'ies' : 'y'} found. Scheduling cleanup pass...`);
                 // Queue non-blockingly so the current pass finishes cleanly first
-                setTimeout(() => runRouterPass(null, '__CLEANUP__', null, true), 200);
+                _routerCleanupTimer = setTimeout(() => {
+                    _routerCleanupTimer = null;
+                    if (ownsChat()) void runRouterPass(null, '__CLEANUP__', null, true);
+                }, 200);
             } else if (bloatedCount > 0) {
                 broadcastStep('thought', `💡 ${bloatedCount} entr${bloatedCount > 1 ? 'ies' : 'y'} may benefit from cleanup (>${CLEANUP_TOKEN_THRESHOLD} tokens). Use the 🧹 button to compress.`);
             }
@@ -2943,7 +2951,7 @@ async function applyAction(action, allBooks = {}, currentTime = '', breadcrumb =
                 // Dynamic import avoids a static cycle (index → router → portraits → index).
                 const { renamePortraitEntity } = await import('./portraits.js');
                 if (!canCommit()) return staleResult;
-                await renamePortraitEntity(oldLabel, rn.label);
+                await renamePortraitEntity(oldLabel, rn.label, { canCommit });
                 if (!canCommit()) return staleResult;
             }
             renameIds.push(rn.id);

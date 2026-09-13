@@ -164,9 +164,12 @@ function migratePortraitMapKey(oldName, newName) {
  * Move a portrait map entry when an NPC/character is renamed (portraits are keyed by name).
  * @param {string} oldName
  * @param {string} newName
+ * @param {{ canCommit?: () => boolean }} [options]
  * @returns {Promise<boolean>} true if a key was moved
  */
-export async function renamePortraitEntity(oldName, newName) {
+export async function renamePortraitEntity(oldName, newName, options = {}) {
+    const canCommit = options.canCommit || (() => true);
+    if (!canCommit()) return false;
     const result = migratePortraitMapKey(oldName, newName);
     if (!result.moved) return false;
 
@@ -175,6 +178,7 @@ export async function renamePortraitEntity(oldName, newName) {
         await deletePortraitFile(result.displaced);
     }
 
+    if (!canCommit()) return false;
     await saveSettings(true);
     return true;
 }

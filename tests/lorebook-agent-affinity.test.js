@@ -36,7 +36,7 @@ describe('Lorebook Agent chat ownership', () => {
         const watermarkAt = fn.indexOf('persistRouterLastRunWatermark(ctx.chat.length)');
         expect(watermarkAt).toBeGreaterThan(-1);
         expect(fn.lastIndexOf('assertOwnsChat()', watermarkAt)).toBeGreaterThan(-1);
-        const finalizeAt = fn.indexOf('await finalizeRouterHistorySnapshot(_routerSnapshotRunId)');
+        const finalizeAt = fn.indexOf('await finalizeRouterHistorySnapshot(_routerSnapshotRunId, ownsChat)');
         expect(finalizeAt).toBeGreaterThan(watermarkAt);
         expect(fn.indexOf('assertOwnsChat()', finalizeAt)).toBeGreaterThan(finalizeAt);
     });
