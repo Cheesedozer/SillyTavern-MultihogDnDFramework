@@ -2,6 +2,12 @@
 
 All notable changes to the **Multihog D&D Framework** will be documented in this file.
 
+## [2026.8.88] - 2026-09-13
+
+### Fixed
+- Lorebook Agent retains chat ownership across lorebook/LLM awaits and stops committing records, activation, relationships, or watermarks into another chat after a switch (including the post-LLM window where the response is already in hand).
+- Delayed Lorebook Agent auto-cleanup is cancelled on chat switch; history finalization and portrait rename follow-up saves also stop when their originating pass loses ownership.
+
 ## [2026.8.87] - 2026-09-13
 
 ### Fixed

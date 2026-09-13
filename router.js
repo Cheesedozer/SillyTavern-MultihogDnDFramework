@@ -68,6 +68,7 @@ import {
 let _routerRunning = false;
 let _routerNormalRunCount = 0; // tracks completed normal (non-cleanup) passes for auto-cleanup interval
 let _routerController = null; // AbortController for the active router pass
+let _routerCleanupTimer = null; // Delayed auto-cleanup belongs to the pass that queued it.
 let _worldProgressionController = null; // AbortController for the active World Progression pass
 
 /** Returns true while a router pass is actively running. */
@@ -75,11 +76,16 @@ export function isRouterRunning() { return _routerRunning; }
 
 /**
  * Aborts the currently-running Lorebook Agent pass, if any.
- * Equivalent to the State Tracker's stop button: kills the in-flight LLM request.
+ * Chat switches must cancel the agent before flipping the live projection so a
+ * late applyAction / watermark persist cannot target the arriving chat.
  */
 export function stopRouterPass() {
+    if (_routerCleanupTimer !== null) {
+        clearTimeout(_routerCleanupTimer);
+        _routerCleanupTimer = null;
+    }
     if (_routerController) {
-        _routerController.abort();
+        try { _routerController.abort(); } catch (_) { /* ignore */ }
         _routerController = null;
     }
 }
@@ -1193,8 +1199,8 @@ export async function restoreCampaignLocationsBook(snapshot, ctx = SillyTavern.g
     return true;
 }
 
-async function finalizeRouterHistorySnapshot(runId) {
-    if (!runId) return;
+async function finalizeRouterHistorySnapshot(runId, canCommit = () => true) {
+    if (!runId || !canCommit()) return;
     const settings = getSettings();
     const snapshot = (settings.routerHistory || []).find(entry => entry?.runId === runId);
     if (!snapshot) return;
@@ -1207,6 +1213,7 @@ async function finalizeRouterHistorySnapshot(runId) {
     const chatId = snapshot.chatId || getRouterChatId();
     const ownedNames = chatId ? (settings.chatStates?.[chatId]?.campaignBooks || []) : [];
     const registryNames = await getWorldInfoNamesSafe({ fullProbe: false });
+    if (!canCommit()) return;
     const currentNames = [...new Set([...ownedNames, ...registryNames])]
         .filter(name => bookBelongsToPrefix(name, prefix) && !isSkeletonBookName(name));
     const before = new Set(getLorebookSnapshotNames(snapshot));
@@ -1433,9 +1440,22 @@ export async function runRouterPass(narrativeOutput, manualPrompt = null, custom
 
     try {
         _routerRunning = true;
-        if (_routerController) _routerController.abort();
+        // Pin chat ownership before any lorebook/LLM await. applyAction routes
+        // records via live getLivePrefix(), and watermark/timestamp helpers
+        // save through getActiveChatId() — both become the arriving chat after
+        // a switch. stopRouterPass() aborts this signal from onChatChanged.
+        const passChatId = getActiveChatId();
+        stopRouterPass();
         _routerController = new AbortController();
         const _routerSignal = _routerController.signal;
+        const ownsChat = () => canCommitPassForChat(passChatId, getActiveChatId(), { aborted: _routerSignal.aborted });
+        const assertOwnsChat = () => {
+            if (!ownsChat()) {
+                const err = new Error('Active chat changed');
+                err.name = 'AbortError';
+                throw err;
+            }
+        };
         broadcastStep('start', 'Initializing Lorebook Agent...');
 
         const startTime = Date.now();
@@ -1456,6 +1476,7 @@ export async function runRouterPass(narrativeOutput, manualPrompt = null, custom
         }
 
         let archiveBooks = await fetchArchiveBooks();
+        assertOwnsChat();
         let _routerTriggerMsg = null;
         let _routerSnapshotRunId = null;
         let _routerPrePassWatermark = 0;
@@ -1588,6 +1609,18 @@ export async function runRouterPass(narrativeOutput, manualPrompt = null, custom
 
         const currentHierarchy = extractFooterLocation(recentChatString) || findLatestDungeonLocation(chat);
         const breadcrumb = currentHierarchy ? currentHierarchy.replace(/,\s*/g, ' :: ') : '';
+        /** Commit via applyAction and abort the pass if ownership was lost mid-write. */
+        async function commitOwnedAction(action) {
+            assertOwnsChat();
+            const result = await applyAction(action, archiveBooks, currentTime, breadcrumb, isManual, { canCommit: ownsChat });
+            assertOwnsChat();
+            if (result?.status === 'chat_changed') {
+                const err = new Error('Active chat changed');
+                err.name = 'AbortError';
+                throw err;
+            }
+            return result;
+        }
         activeDungeonContext = dungeonRealityEnabled
             ? resolveActiveDungeonContext(archiveBooks, prefix, currentHierarchy)
             : null;
@@ -1862,13 +1895,14 @@ Action: commit({"rewrite": [{"id": "Eldoria_Events::3", "content": "Compressed v
                 const cleanupUserPrompt = cleanupContext;
                 broadcastStep('thought', 'Thinking...');
                 const basicResp = await sendStateRequest(routerSettings, cleanupSystemPrompt, cleanupUserPrompt, _routerSignal);
+                assertOwnsChat();
                 const thoughtMatchC = basicResp.match(/(?:Thought|Reasoning):\s*([\s\S]*?)(?=\[\[|$)/i);
                 if (thoughtMatchC) broadcastStep('thought', thoughtMatchC[1].trim().substring(0, 300));
                 broadcastStep('thought', 'Parsing cleanup tags...');
                 const cleanupAction = parseBasicTags(basicResp, archiveBooks);
                 cleanupAction.reason = targetEntryId ? `Targeted cleanup: ${targetEntryId}.` : 'Cleanup pass (basic mode).';
                 if (cleanupAction.rewrite.length > 0 || cleanupAction.consolidate.length > 0) {
-                    await applyAction(cleanupAction, archiveBooks, currentTime, breadcrumb, isManual);
+                    await commitOwnedAction(cleanupAction);
                     const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
                     broadcastStep('finish', `Cleanup done in ${totalTime}s — ${cleanupAction.rewrite.length} rewritten, ${cleanupAction.consolidate.length} consolidated.`);
                 } else {
@@ -1978,6 +2012,7 @@ Action: commit({"rewrite": [{"id": "Eldoria_Events::3", "content": "Compressed v
                 cleanupTurns++;
                 broadcastStep('thought', `Cleanup thinking (Turn ${cleanupTurns}/${maxTurns})...`);
                 const result = await sendAgentTurn(routerSettings, cleanupMessages, usesNativeTools ? cleanupAgentTools : null, _routerSignal);
+                assertOwnsChat();
 
                 if (result.content) {
                     const thoughtLine = result.content.match(/(?:Thought|Reasoning):\s*(.*)/i)?.[1]?.trim()
@@ -2027,8 +2062,9 @@ Action: commit({"rewrite": [{"id": "Eldoria_Events::3", "content": "Compressed v
                 let observation = '';
                 if (toolName === 'commit') {
                     args.reason = targetEntryId ? `Targeted cleanup: ${targetEntryId}.` : 'Cleanup pass (agent mode).';
-                    const commitResult = await applyAction(args, archiveBooks, currentTime, breadcrumb, isManual);
+                    const commitResult = await commitOwnedAction(args);
                     archiveBooks = await fetchArchiveBooks();
+                    assertOwnsChat();
                     if (commitResult.errors.length > 0) {
                         observation = `Committed with warnings: ${commitResult.errors.join(', ')}`;
                     } else {
@@ -2044,6 +2080,7 @@ Action: commit({"rewrite": [{"id": "Eldoria_Events::3", "content": "Compressed v
                     } else {
                         const [bookName, id] = uid.split('::');
                         const book = await ctx.loadWorldInfo(bookName);
+                        assertOwnsChat();
                         observation = book?.entries?.[id] ? book.entries[id].content : `Entry "${uid}" not found.`;
                     }
                 } else if (toolName === 'grep_lore') {
@@ -2164,6 +2201,7 @@ Action: commit({"rewrite": [{"id": "Eldoria_Events::3", "content": "Compressed v
 
             broadcastStep('thought', 'Thinking...');
             const basicResp = await sendStateRequest(routerSettings, finalBasicSystemPrompt, basicUserPrompt, _routerSignal);
+            assertOwnsChat();
 
             const thoughtMatchB = basicResp.match(/Thought:\s*([\s\S]*?)(?=\[\[|$)/i);
             if (thoughtMatchB) broadcastStep('thought', thoughtMatchB[1].trim());
@@ -2179,7 +2217,7 @@ Action: commit({"rewrite": [{"id": "Eldoria_Events::3", "content": "Compressed v
                 if (basicAction.deactivate.length) summaries.push(`Deactivations: ${basicAction.deactivate.length}`);
                 if (basicAction.core?.length || basicAction.appearance?.length || basicAction.equipment?.length) summaries.push(`Core: ${(basicAction.core?.length || 0) + (basicAction.appearance?.length || 0) + (basicAction.equipment?.length || 0)}`);
                 basicAction.reason = (thoughtMatchB ? thoughtMatchB[1].trim() : 'Tag-based update.') + ` (${summaries.join(', ')})`;
-                await applyAction(basicAction, archiveBooks, currentTime, breadcrumb, isManual);
+                await commitOwnedAction(basicAction);
                 basicSummaryText = summaries.join(', ');
             } else {
                 broadcastStep('finish', 'Basic Mode: No tags found.');
@@ -2495,6 +2533,7 @@ ${recordCategoryGuidance}`;
                 // Only pass tool schemas to connections that support native tool calling.
                 // Profile/default connections ignore or mishandle the tools parameter.
                 const result = await sendAgentTurn(routerSettings, messages, usesNativeTools ? agentTools : null, _routerSignal);
+                assertOwnsChat();
 
                 // Show any inline thought the model included alongside the tool call
                 if (result.content) {
@@ -2577,7 +2616,7 @@ ${recordCategoryGuidance}`;
                 } else if (toolName === 'commit') {
                     const ordinaryAction = { ...args };
                     delete ordinaryAction.map;
-                    const commitResult = await applyAction(ordinaryAction, archiveBooks, currentTime, breadcrumb, isManual);
+                    const commitResult = await commitOwnedAction(ordinaryAction);
                     commitAccepted = true;
                     jsonCorrectionRetries = 0;
                     const details = [];
@@ -2587,6 +2626,7 @@ ${recordCategoryGuidance}`;
                         ? `Committed with warnings: ${commitResult.errors.join(', ')}${details.length ? ` | ${details.join(' | ')}` : ''}`
                         : `Committed successfully. ${details.join(' | ')}`;
                     archiveBooks = await fetchArchiveBooks();
+                    assertOwnsChat();
                     keyringText = buildKeyringText(archiveBooks, settings.activeRouterKeys);
                     activeDungeonContext = dungeonRealityEnabled
                         ? resolveActiveDungeonContext(archiveBooks, prefix, currentHierarchy)
@@ -2614,6 +2654,7 @@ ${recordCategoryGuidance}`;
                     } else {
                         const [bookName, id] = uid.split('::');
                         const book = await ctx.loadWorldInfo(bookName);
+                        assertOwnsChat();
                         observation = book?.entries?.[id] ? book.entries[id].content : `Entry "${uid}" not found.`;
                     }
                 } else {
@@ -2646,6 +2687,11 @@ ${recordCategoryGuidance}`;
         const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
         const finishMsg = basicSummaryText ? `Finished in ${totalTime}s -- ${basicSummaryText}` : `Finished in ${totalTime}s`;
         broadcastStep('finish', finishMsg, { time: totalTime, turns });
+
+        // Refuse watermark / stamp / history finalization once ownership is lost.
+        // Aborted/errored passes already jump to catch; this covers the post-LLM
+        // window where the AbortSignal fired after the response was already in hand.
+        assertOwnsChat();
 
         // Advance the "since last run" watermark only when this pass actually used that lookback mode.
         // Aborted/errored passes never reach here (they go to catch), so the watermark is safe.
@@ -2680,7 +2726,8 @@ ${recordCategoryGuidance}`;
 
         // Record the exact book-level delta while the pass is still the newest action.
         // Rollback can then remove only books proven to have been created by this pass.
-        await finalizeRouterHistorySnapshot(_routerSnapshotRunId);
+        await finalizeRouterHistorySnapshot(_routerSnapshotRunId, ownsChat);
+        assertOwnsChat();
 
         // Manual passes don't go through onGenerationEnded's throttle reset — treat like an auto run.
         if (typeof globalThis._rpgResetRouterAutoTick === 'function') {
@@ -2709,7 +2756,10 @@ ${recordCategoryGuidance}`;
             if (shouldAutoCleanup) {
                 broadcastStep('thought', `🧹 Auto-cleanup: ${bloatedCount} bloated entr${bloatedCount > 1 ? 'ies' : 'y'} found. Scheduling cleanup pass...`);
                 // Queue non-blockingly so the current pass finishes cleanly first
-                setTimeout(() => runRouterPass(null, '__CLEANUP__', null, true), 200);
+                _routerCleanupTimer = setTimeout(() => {
+                    _routerCleanupTimer = null;
+                    if (ownsChat()) void runRouterPass(null, '__CLEANUP__', null, true);
+                }, 200);
             } else if (bloatedCount > 0) {
                 broadcastStep('thought', `💡 ${bloatedCount} entr${bloatedCount > 1 ? 'ies' : 'y'} may benefit from cleanup (>${CLEANUP_TOKEN_THRESHOLD} tokens). Use the 🧹 button to compress.`);
             }
@@ -2718,8 +2768,11 @@ ${recordCategoryGuidance}`;
         return true;
     } catch (e) {
         if (e?.name === 'AbortError') {
-            console.log('[Lorebook Agent] Pass aborted by user.');
-            broadcastStep('error', 'Stopped by user.');
+            const chatChanged = /chat changed/i.test(e?.message || '');
+            console.log(chatChanged
+                ? '[Lorebook Agent] Pass aborted: active chat changed.'
+                : '[Lorebook Agent] Pass aborted by user.');
+            broadcastStep('error', chatChanged ? 'Stopped: active chat changed.' : 'Stopped by user.');
         } else {
             console.error("[Lorebook Agent] Run failed:", e);
             broadcastStep('error', e.message);
@@ -2898,7 +2951,7 @@ async function applyAction(action, allBooks = {}, currentTime = '', breadcrumb =
                 // Dynamic import avoids a static cycle (index → router → portraits → index).
                 const { renamePortraitEntity } = await import('./portraits.js');
                 if (!canCommit()) return staleResult;
-                await renamePortraitEntity(oldLabel, rn.label);
+                await renamePortraitEntity(oldLabel, rn.label, { canCommit });
                 if (!canCommit()) return staleResult;
             }
             renameIds.push(rn.id);
