@@ -1412,7 +1412,9 @@ export function sanitizeCampaignPrefixString(raw) {
 }
 
 /**
- * Prefix used for world activation and router: optional user override, else from chat id.
+ * Prefix used for world activation and router: applicable user override, explicit
+ * per-chat rename pin, then chat id. Ordinary saved routerCampaignPrefix remains
+ * untrusted because old versions could store another chat's projected prefix.
  *
  * When `routerCampaignPrefixOverride` is set, it applies only to the anchored chat
  * (`routerCampaignPrefixOverrideAnchorChatId`). Legacy settings with an override but
@@ -1426,20 +1428,26 @@ export function getEffectiveRouterCampaignPrefix(chatId) {
     const s = getSettings();
     const ov = (s.routerCampaignPrefixOverride || '').trim();
     const id = String(chatId || '');
-    if (!ov) return sanitizeCampaignPrefixString(id);
+    const renamePin = sanitizeCampaignPrefixString(s.chatStates?.[id]?.renamedCampaignPrefix || '');
+    const fallback = renamePin || sanitizeCampaignPrefixString(id);
+    if (!ov) return fallback;
 
     const sanitizedOv = sanitizeCampaignPrefixString(ov);
     const anchor = (s.routerCampaignPrefixOverrideAnchorChatId || '').trim();
     if (anchor) {
-        return id && id === anchor ? sanitizedOv : sanitizeCampaignPrefixString(id);
+        return id && id === anchor ? sanitizedOv : fallback;
     }
+
+    // An explicit per-chat link is stronger evidence than a legacy global
+    // override with no recorded owner. Modern manual edits always set an anchor.
+    if (renamePin) return renamePin;
 
     // Legacy unanchored override: only while evaluating the active chat.
     try {
         const ctx = SillyTavern.getContext();
         const activeId = String(ctx?.getCurrentChatId?.() || ctx?.chatId || '');
         if (id && activeId && id !== activeId) {
-            return sanitizeCampaignPrefixString(id);
+            return fallback;
         }
     } catch (_) { /* fall through */ }
 

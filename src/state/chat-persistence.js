@@ -508,6 +508,8 @@ export function saveChatState(chatId, opts = {}) {
         keywordActivatedKeys: JSON.parse(JSON.stringify(s.keywordActivatedKeys || [])),
         routerLog:    JSON.parse(JSON.stringify(s.routerLog || [])),
         routerCampaignPrefix: s.routerCampaignPrefix || '',
+        // Only rename migration writes this pin; never copy it from the live chat.
+        renamedCampaignPrefix: existing.renamedCampaignPrefix || '',
         routerLookback: s.routerLookback || 4,
         routerLastRunChatLength: s.routerLastRunChatLength ?? 0,
         routerLastRunAt: s.routerLastRunAt ?? 0,

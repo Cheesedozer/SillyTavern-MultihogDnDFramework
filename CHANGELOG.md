@@ -2,6 +2,12 @@
 
 All notable changes to the **Multihog D&D Framework** will be documented in this file.
 
+## [2026.8.90] - 2026-09-15
+
+### Fixed
+- Renaming an inactive chat migrates its data to the renamed file, preserving the open chat's state. The destination uses SillyTavern's filename sanitizer instead of the active chat ID.
+- Renamed chats retain their original lorebook prefix across saves, reloads, and later renames. Manual overrides remain scoped to their chat, and new campaign branches use their cloned lorebooks.
+
 ## [2026.8.89] - 2026-09-14
 
 ### Fixed

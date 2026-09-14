@@ -76,6 +76,8 @@ export function copyChatStatePartition(s, oldId, newId, newPrefix, bookRenameMap
         throw new Error(`No Multihog chat state found for "${oldId}".`);
     }
     const copy = JSON.parse(JSON.stringify(source));
+    // Branches own newly cloned books, so the source's rename pin must not follow.
+    delete copy.renamedCampaignPrefix;
     if (newPrefix) copy.routerCampaignPrefix = newPrefix;
 
     if (Array.isArray(copy.campaignBooks) && Object.keys(bookRenameMap).length) {

@@ -7821,9 +7821,13 @@ function organizeConnectionSettingsUI() {
         eventSource.on(event_types.CHAT_CHANGED, onChatChanged);
         if (event_types.CHAT_RENAMED) {
             eventSource.on(event_types.CHAT_RENAMED, (detail) => {
-                void onChatRenamedMigrate(detail || {}, {
+                return onChatRenamedMigrate(detail || {}, {
                     saveSettings,
                     loadChatState,
+                    sanitizeFileName: async fileName => {
+                        const { getSanitizedFilename } = await import('../../../utils.js');
+                        return getSanitizedFilename(fileName);
+                    },
                 });
             });
         }
