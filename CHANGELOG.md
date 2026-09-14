@@ -2,6 +2,11 @@
 
 All notable changes to the **Multihog D&D Framework** will be documented in this file.
 
+## [2026.8.89] - 2026-09-14
+
+### Fixed
+- Character Creator, Quick Start, PC Import, and onboarding archetype rolls stop after a cancelled/chat-changed State Tracker prompt, so late Player Card, portrait, persona, or starter-message follow-ups cannot land in another chat.
+
 ## [2026.8.88] - 2026-09-13
 
 ### Fixed

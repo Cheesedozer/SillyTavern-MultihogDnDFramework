@@ -1,4 +1,4 @@
-import { getSettings } from './state-manager.js';
+import { getSettings, getActiveChatId } from './state-manager.js';
 import {
     getArchetypesForGenre,
     generateQuickStartCharacter,
@@ -16,6 +16,7 @@ import {
     resolveInstantActionPlayerCardWords,
     resolveInstantActionStartingLevel,
 } from './src/state/instant-action-instructions.js';
+import { canCommitPassForChat } from './src/state/pass-affinity.js';
 
 /** @type {boolean} */
 let _quickStartRunning = false;
@@ -155,6 +156,7 @@ export async function runQuickStart(genre, rootEl = null, selectedName = '', ins
         ].join(' · ');
 
         setQuickStartStatus(root, `Creating character (${creationDetails})…`);
+        const passChatId = getActiveChatId();
         const { charName } = await generateQuickStartCharacter({
             genre: validGenre,
             className,
@@ -163,6 +165,9 @@ export async function runQuickStart(genre, rootEl = null, selectedName = '', ins
             nameVal,
             instantActionInstructions,
         });
+        if (!canCommitPassForChat(passChatId, getActiveChatId())) {
+            throw new Error('Quick Start stopped because the active chat changed.');
+        }
 
         setQuickStartStatus(root, 'Creating Lorebook Agent Player Card…');
         const bio = await generatePersonaBio(
@@ -170,17 +175,30 @@ export async function runQuickStart(genre, rootEl = null, selectedName = '', ins
             wordCount,
             buildInstantActionPromptSection(instantActionInstructions),
         );
+        if (!canCommitPassForChat(passChatId, getActiveChatId())) {
+            throw new Error('Quick Start stopped because the active chat changed.');
+        }
         if (!bio) {
             throw new Error('Persona generation returned empty.');
         }
-        const ok = await addPlayerCardToLorebookAgent(charName, bio, wordCount);
+        const ok = await addPlayerCardToLorebookAgent(charName, bio, wordCount, { chatId: passChatId });
         if (!ok) {
-            throw new Error('Could not add Player Card — no active chat.');
+            throw new Error(
+                canCommitPassForChat(passChatId, getActiveChatId())
+                    ? 'Could not add Player Card — no active chat.'
+                    : 'Quick Start stopped because the active chat changed.',
+            );
         }
 
+        if (!canCommitPassForChat(passChatId, getActiveChatId())) {
+            throw new Error('Quick Start stopped because the active chat changed.');
+        }
         setQuickStartStatus(root, 'Creating name-only chat persona…');
         await activateSillyTavernPersona(charName);
 
+        if (!canCommitPassForChat(passChatId, getActiveChatId())) {
+            throw new Error('Quick Start stopped because the active chat changed.');
+        }
         const readyDetail = instantActionInstructions ? 'custom instructions' : className;
         if (s.onboardingSendStarterMessage !== false) {
             setQuickStartStatus(root, 'Starting adventure…');

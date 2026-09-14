@@ -4847,6 +4847,8 @@ async function maybeCreateOnboardingPersona(extraHints = '', options = {}) {
     const createPlayerCard = !!s.onboardingCreatePersona;
     const createStPersona = s.onboardingCreateSillyTavernPersona !== false;
     if (!createPlayerCard && !createStPersona) return;
+    const passChatId = getActiveChatId();
+    if (!canCommitPassForChat(passChatId, runtimeState.currentChatId)) return;
     const preferredName = String(options.preferredName || '').trim();
     const charName = preferredName || extractCharNameFromMemo(s.currentMemo) || 'My Character';
     if (createStPersona) {
@@ -4860,12 +4862,14 @@ async function maybeCreateOnboardingPersona(extraHints = '', options = {}) {
         }
     }
     if (!createPlayerCard) return;
+    if (!canCommitPassForChat(passChatId, runtimeState.currentChatId)) return;
     const wordsRaw = s.onboardingPersonaWords === 'other'
         ? s.onboardingPersonaWordsCustom
         : s.onboardingPersonaWords;
     const wordCount = parseInt(String(wordsRaw || '150'), 10) || 150;
     toastr['info'](`Generating Lorebook Agent Player Card for "${charName}"…`, 'RPG Tracker');
     const bio = await generatePersonaBio(charName, wordCount, extraHints);
+    if (!canCommitPassForChat(passChatId, runtimeState.currentChatId)) return;
     if (bio) {
         showPersonaConfirmOverlay(bio, charName, wordCount, extraHints);
     } else {

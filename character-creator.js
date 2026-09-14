@@ -1,4 +1,4 @@
-import { getSettings, saveChatState, DEFAULT_PC_SECTIONS } from './state-manager.js';
+import { getSettings, saveChatState, DEFAULT_PC_SECTIONS, getActiveChatId } from './state-manager.js';
 import { sendStateRequest } from './llm-client.js';
 import { buildOnboardingXpHint, buildOnboardingTimeHint, buildStartingGearHint, buildOnboardingActiveBlocks, buildCombatAndSkillScalingHint } from './constants.js';
 import { escapeHtml } from './memo-processor.js';
@@ -13,6 +13,23 @@ import { CHARACTER_CREATOR_NAME_ADDITIONS } from './src/state/character-names.js
 import { buildInstantActionPromptSection, extractInstantActionLevel, normalizeInstantActionInstructions } from './src/state/instant-action-instructions.js';
 import { findCharacterCreatorPresetByName, upsertCharacterCreatorPreset } from './src/features/character-creator/presets.js';
 import { getCharacterCreationConnectionSettings } from './character-creation-connection.js';
+import { canCommitPassForChat } from './src/state/pass-affinity.js';
+
+/**
+ * sendDirectPrompt already refuses memo commits after a chat switch, but callers
+ * must not treat a failed/cancelled result as success — the live projection is
+ * then the arriving chat, so memo/portrait/Player Card follow-ups would corrupt it.
+ * @param {any} result
+ * @param {string} [label]
+ */
+function assertDirectPromptOwned(result, label = 'Character generation') {
+    if (result?.success) return result;
+    const status = result?.status;
+    if (status === 'cancelled' || status === 'chat_changed') {
+        throw new Error(`${label} stopped because the active chat changed or the request was cancelled.`);
+    }
+    throw new Error(result?.message || `${label} failed — State Model returned no character sheet. Check your API connection.`);
+}
 
 const _CR_CLASS_LISTS = {
     fantasy: [
@@ -266,6 +283,7 @@ export async function generateQuickStartCharacter(opts) {
     if (!className) throw new Error('Quick Start requires a class archetype.');
 
     const memoBefore = s.currentMemo || '';
+    const passChatId = getActiveChatId();
     const { prompt } = buildCharacterGenerationPrompt({
         nameVal: opts.nameVal,
         genre,
@@ -275,10 +293,14 @@ export async function generateQuickStartCharacter(opts) {
         instantActionInstructions: opts.instantActionInstructions,
     });
 
-    await sendDirectPrompt(prompt, {
+    const result = await sendDirectPrompt(prompt, {
         systemPromptMode: 'modules_only',
         connectionSettings: getCharacterCreationConnectionSettings(s),
     });
+    assertDirectPromptOwned(result);
+    if (!canCommitPassForChat(passChatId, getActiveChatId())) {
+        throw new Error('Character generation stopped because the active chat changed or the request was cancelled.');
+    }
 
     const s2 = getSettings();
     const memoAfter = s2.currentMemo || '';
@@ -287,7 +309,7 @@ export async function generateQuickStartCharacter(opts) {
     }
 
     const extractedName = extractCharNameFromMemo(memoAfter);
-    return { charName: extractedName || 'My Character' };
+    return { charName: extractedName || 'My Character', passChatId };
 }
 
 /**
@@ -295,32 +317,37 @@ export async function generateQuickStartCharacter(opts) {
  * @param {string} name
  * @param {string} bio
  * @param {number} [wordCount]
+ * @param {{ chatId?: string|null }} [opts]
  * @returns {Promise<boolean>} true if written
  */
-export async function addPlayerCardToLorebookAgent(name, bio, wordCount = 150) {
+export async function addPlayerCardToLorebookAgent(name, bio, wordCount = 150, opts = {}) {
     const safeName = String(name || '').replace(/['"\\]/g, '').trim() || 'My Character';
     const finalBio = String(bio || '').trim();
     if (!finalBio) return false;
 
     const s = getSettings();
     if (!s.chatStates) s.chatStates = {};
-    const currentChatId = SillyTavern.getContext().chatId;
-    if (!currentChatId) return false;
+    const passChatId = opts.chatId != null && String(opts.chatId).length > 0
+        ? String(opts.chatId)
+        : getActiveChatId();
+    if (!canCommitPassForChat(passChatId, getActiveChatId())) return false;
 
-    if (!s.chatStates[currentChatId]) s.chatStates[currentChatId] = {};
-    s.chatStates[currentChatId].playerCharacter = {
+    if (!s.chatStates[passChatId]) s.chatStates[passChatId] = {};
+    s.chatStates[passChatId].playerCharacter = {
         name: safeName,
         bio: finalBio,
         wordCount: wordCount || 100,
         timestamp: Date.now(),
     };
-    saveChatState(currentChatId);
+    saveChatState(passChatId);
     // The card is ready as soon as it is stored above. Campaign Records can be
     // rebuilding a large lorebook or Scene View, so never make the approval UI
     // wait for that unrelated work to finish.
-    void refreshAgentManifestNow().catch(error => {
-        console.warn('[RPG Tracker] Could not refresh Campaign Records after adding Player Card:', error);
-    });
+    if (canCommitPassForChat(passChatId, getActiveChatId())) {
+        void refreshAgentManifestNow().catch(error => {
+            console.warn('[RPG Tracker] Could not refresh Campaign Records after adding Player Card:', error);
+        });
+    }
     return true;
 }
 
@@ -759,23 +786,32 @@ async function handleCharRollGenerate(el, panel) {
     if (genBtn) { genBtn.disabled = true; genBtn.textContent = '🎲 Generating...'; }
 
     try {
-        await sendDirectPrompt(prompt, {
+        const passChatId = getActiveChatId();
+        const result = await sendDirectPrompt(prompt, {
             systemPromptMode: 'modules_only',
             connectionSettings: getCharacterCreationConnectionSettings(s),
         });
+        assertDirectPromptOwned(result);
+        if (!canCommitPassForChat(passChatId, getActiveChatId())) return;
 
         if (wantPlayerCard || wantStPersona) {
             const s2 = getSettings();
             const extractedName = extractCharNameFromMemo(s2.currentMemo);
             const charName = extractedName || nameVal || 'My Character';
             if (wantStPersona) {
+                if (!canCommitPassForChat(passChatId, getActiveChatId())) return;
                 await activateSillyTavernPersona(charName);
             }
             if (!wantPlayerCard) return;
+            if (!canCommitPassForChat(passChatId, getActiveChatId())) return;
             const finalExtraHints = extraHints + (cardSnippet ? `\n\n--- CHARACTER CARD CONTEXT ---${cardSnippet}` : '');
             const bio = await generatePersonaBio(charName, wordCount, finalExtraHints);
+            if (!canCommitPassForChat(passChatId, getActiveChatId())) return;
             if (bio) showPersonaConfirmOverlay(bio, charName, wordCount, extraHints);
         }
+    } catch (error) {
+        console.error('[Character Creator]', error);
+        toastr['error'](error?.message || String(error), 'Character Creator', { timeOut: 8000 });
     } finally {
         const resetEl = resolveOnboardingEl(el) || el;
         const resetPanel = resetEl.querySelector('#rt-char-roll-panel') || panel;
@@ -1286,42 +1322,57 @@ ${worldCtx}`;
     toastr['info'](`Importing "${name}" as PC… generating state memo.`, 'PC Import');
     el.querySelectorAll('.rt-random-char-btn').forEach(b => { /** @type {HTMLButtonElement} */ (b).disabled = true; });
 
-    await sendDirectPrompt(memoPrompt, {
-        systemPromptMode: 'modules_only',
-        connectionSettings: getCharacterCreationConnectionSettings(s),
-    });
+    const passChatId = getActiveChatId();
+    let importSucceeded = false;
+    try {
+        const result = await sendDirectPrompt(memoPrompt, {
+            systemPromptMode: 'modules_only',
+            connectionSettings: getCharacterCreationConnectionSettings(s),
+        });
+        assertDirectPromptOwned(result, 'PC Import');
+        if (!canCommitPassForChat(passChatId, getActiveChatId())) {
+            throw new Error('PC Import stopped because the active chat changed or the request was cancelled.');
+        }
+        importSucceeded = true;
 
-    // Sync the card's avatar as the PC portrait globally so both the State Tracker
-    // and Campaign Records immediately reflect the newly imported character's image.
-    if (charCard.avatar && charCard.avatar !== 'none') {
-        if (!s.customPortraits) s.customPortraits = {};
-        const avatarUrl = `/characters/${encodeURIComponent(charCard.avatar)}`;
-        const safeName = name.replace(/['"\\]/g, '').trim() || 'My Character';
-        s.customPortraits['CHARACTER'] = avatarUrl;
-        s.customPortraits['PC'] = avatarUrl;
-        s.customPortraits[safeName] = avatarUrl;
-        
-        // Also map the AI-generated clean name (if any) from the new state memo,
-        // so the State Tracker can match the portrait even if the AI changed the name.
-        const extractedName = extractCharNameFromMemo(s.currentMemo);
-        if (extractedName && extractedName !== safeName) {
-            s.customPortraits[extractedName] = avatarUrl;
+        // Sync the card's avatar as the PC portrait globally so both the State Tracker
+        // and Campaign Records immediately reflect the newly imported character's image.
+        if (charCard.avatar && charCard.avatar !== 'none'
+            && canCommitPassForChat(passChatId, getActiveChatId())) {
+            if (!s.customPortraits) s.customPortraits = {};
+            const avatarUrl = `/characters/${encodeURIComponent(charCard.avatar)}`;
+            const safeName = name.replace(/['"\\]/g, '').trim() || 'My Character';
+            s.customPortraits['CHARACTER'] = avatarUrl;
+            s.customPortraits['PC'] = avatarUrl;
+            s.customPortraits[safeName] = avatarUrl;
+
+            // Also map the AI-generated clean name (if any) from the new state memo,
+            // so the State Tracker can match the portrait even if the AI changed the name.
+            const extractedName = extractCharNameFromMemo(s.currentMemo);
+            if (extractedName && extractedName !== safeName) {
+                s.customPortraits[extractedName] = avatarUrl;
+            }
+
+            if (canCommitPassForChat(passChatId, getActiveChatId()) && typeof saveChatState === 'function') {
+                saveChatState(passChatId);
+            }
+
+            // Force an immediate synchronous re-render of the State Tracker
+            // now that the customPortraits object has the PC avatar.
+            if (canCommitPassForChat(passChatId, getActiveChatId()) && typeof refreshRenderedView === 'function') {
+                refreshRenderedView();
+            }
+            document.dispatchEvent(new CustomEvent('rt_lore_agent_updated'));
         }
-        
-        const currentChatId = SillyTavern.getContext().chatId;
-        if (currentChatId && typeof saveChatState === 'function') {
-            saveChatState(currentChatId);
-        }
-        
-        // Force an immediate synchronous re-render of the State Tracker 
-        // now that the customPortraits object has the PC avatar.
-        if (typeof refreshRenderedView === 'function') {
-            refreshRenderedView();
-        }
-        document.dispatchEvent(new CustomEvent('rt_lore_agent_updated'));
+    } catch (error) {
+        console.error('[PC Import]', error);
+        toastr['error'](error?.message || String(error), 'PC Import', { timeOut: 8000 });
+        el.querySelectorAll('.rt-random-char-btn').forEach(b => { /** @type {HTMLButtonElement} */ (b).disabled = false; });
+        return;
     }
 
     el.querySelectorAll('.rt-random-char-btn').forEach(b => { /** @type {HTMLButtonElement} */ (b).disabled = false; });
+    if (!importSucceeded || !canCommitPassForChat(passChatId, getActiveChatId())) return;
 
     // --- Step 2: Optional name-only ST persona ---
     if (s.onboardingCreateSillyTavernPersona !== false) {
@@ -1333,11 +1384,14 @@ ${worldCtx}`;
         }
     }
 
+    if (!canCommitPassForChat(passChatId, getActiveChatId())) return;
+
     // --- Step 3: Optional Lorebook Agent Player Card ---
     if (!s.onboardingCreatePersona) return;
     toastr['info'](`Generating Lorebook Agent Player Card for "${name}"…`, 'PC Import');
     
     const bio = await generatePcImportBio(charCard, mode, wordCountStr);
+    if (!canCommitPassForChat(passChatId, getActiveChatId())) return;
     if (bio) {
         showPersonaConfirmOverlay(bio, name, wordCountStr === 'same' ? 150 : parseInt(wordCountStr, 10), '');
     } else {

@@ -441,10 +441,16 @@ export function bindRenderedCardEvents(el, memo, isDetachedContext = false, onRe
                 }
                 try {
                     syncOnboardingPersonaPrefsFromDom(el);
-                    await sendDirectPrompt(customPrompt + combatSkillHint, {
+                    const result = await sendDirectPrompt(customPrompt + combatSkillHint, {
                         systemPromptMode: 'modules_only',
                         connectionSettings: getCharacterCreationConnectionSettings(getSettings()),
                     });
+                    if (!result?.success) {
+                        if (result?.status !== 'busy') {
+                            toastr['warning'](result?.message || 'Character generation did not complete.', 'RPG Tracker');
+                        }
+                        return;
+                    }
                     const personaHints = `\n\n--- PLAYER PREFERENCES & HINTS ---\nAdditional: ${customInstructions}\n`;
                     await maybeCreateOnboardingPersona(personaHints);
                 } finally {
@@ -476,16 +482,27 @@ export function bindRenderedCardEvents(el, memo, isDetachedContext = false, onRe
                 if (customInstructions) {
                     personaPrompt += `\n\nAdditional setting/instruction constraints: ${customInstructions}. Adapt the name, attributes, description, gear, and spells (if any) to match this setting/instruction perfectly.`;
                 }
-                syncOnboardingPersonaPrefsFromDom(el);
-                await sendDirectPrompt(personaPrompt + combatSkillHint, {
-                    systemPromptMode: 'modules_only',
-                    connectionSettings: getCharacterCreationConnectionSettings(getSettings()),
-                });
-                const personaHints = `\n\n--- PLAYER PREFERENCES & HINTS ---\nSource: the previously active SillyTavern persona.${customInstructions ? `\nAdditional: ${customInstructions}` : ''}\n`;
-                await maybeCreateOnboardingPersona(personaHints, {
-                    preserveActivePersona: true,
-                    preferredName: personaName,
-                });
+                try {
+                    syncOnboardingPersonaPrefsFromDom(el);
+                    const result = await sendDirectPrompt(personaPrompt + combatSkillHint, {
+                        systemPromptMode: 'modules_only',
+                        connectionSettings: getCharacterCreationConnectionSettings(getSettings()),
+                    });
+                    if (!result?.success) {
+                        if (result?.status !== 'busy') {
+                            toastr['warning'](result?.message || 'Character generation did not complete.', 'RPG Tracker');
+                        }
+                        return;
+                    }
+                    const personaHints = `\n\n--- PLAYER PREFERENCES & HINTS ---\nSource: the previously active SillyTavern persona.${customInstructions ? `\nAdditional: ${customInstructions}` : ''}\n`;
+                    await maybeCreateOnboardingPersona(personaHints, {
+                        preserveActivePersona: true,
+                        preferredName: personaName,
+                    });
+                } finally {
+                    el.querySelectorAll('.rt-random-char-btn').forEach(b => b.disabled = false);
+                    btn.textContent = '🎭 Persona';
+                }
                 return;
             }
 
@@ -497,10 +514,16 @@ export function bindRenderedCardEvents(el, memo, isDetachedContext = false, onRe
             }
             try {
                 syncOnboardingPersonaPrefsFromDom(el);
-                await sendDirectPrompt(promptText + combatSkillHint, {
+                const result = await sendDirectPrompt(promptText + combatSkillHint, {
                     systemPromptMode: 'modules_only',
                     connectionSettings: getCharacterCreationConnectionSettings(getSettings()),
                 });
+                if (!result?.success) {
+                    if (result?.status !== 'busy') {
+                        toastr['warning'](result?.message || 'Character generation did not complete.', 'RPG Tracker');
+                    }
+                    return;
+                }
                 const personaHints = customInstructions
                     ? `\n\n--- PLAYER PREFERENCES & HINTS ---\nAdditional: ${customInstructions}\n`
                     : '';
