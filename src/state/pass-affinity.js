@@ -17,3 +17,17 @@ export function canCommitPassForChat(passChatId, currentChatId, { aborted = fals
     if (currentChatId == null || String(currentChatId).length === 0) return false;
     return String(passChatId) === String(currentChatId);
 }
+
+let chatSwitchGeneration = 0;
+
+/** Invalidate deferred work on a real chat switch, including an A → B → A round trip. */
+export function invalidateChatCommitGuards() {
+    chatSwitchGeneration++;
+}
+
+/** Capture once at the start of an operation and pass the guard to nested writes. */
+export function createChatCommitGuard(chatId, getCurrentChatId) {
+    const generation = chatSwitchGeneration;
+    return () => generation === chatSwitchGeneration
+        && canCommitPassForChat(chatId, getCurrentChatId());
+}
