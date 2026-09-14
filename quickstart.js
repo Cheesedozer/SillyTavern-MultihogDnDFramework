@@ -16,7 +16,7 @@ import {
     resolveInstantActionPlayerCardWords,
     resolveInstantActionStartingLevel,
 } from './src/state/instant-action-instructions.js';
-import { canCommitPassForChat } from './src/state/pass-affinity.js';
+import { createChatCommitGuard } from './src/state/pass-affinity.js';
 
 /** @type {boolean} */
 let _quickStartRunning = false;
@@ -76,9 +76,10 @@ function setQuickStartBusy(rootEl, disabled) {
 /**
  * Apply the player's current Narrator Configuration before Instant Action begins.
  */
-async function applyQuickStartConfiguration() {
+async function applyQuickStartConfiguration(canCommit) {
     saveSettings();
-    await autoApplySysprompt(true);
+    await autoApplySysprompt(true, { canCommit });
+    if (!canCommit()) return;
 
     if (typeof globalThis._rpgRenderAgentModules === 'function') {
         globalThis._rpgRenderAgentModules();
@@ -117,13 +118,16 @@ export async function runQuickStart(genre, rootEl = null, selectedName = '', ins
     const root = rootEl || /** @type {HTMLElement|null} */ (document.querySelector('.rt-empty'));
     const nameVal = String(selectedName || '').trim();
     const instantActionInstructions = normalizeInstantActionInstructions(instructionText);
+    const passChatId = getActiveChatId();
+    const ownsChat = createChatCommitGuard(passChatId, getActiveChatId);
 
     _quickStartRunning = true;
     setQuickStartBusy(root, true);
 
     try {
         setQuickStartStatus(root, 'Enabling systems…');
-        await applyQuickStartConfiguration();
+        await applyQuickStartConfiguration(ownsChat);
+        if (!ownsChat()) throw new Error('Quick Start stopped because the active chat changed.');
 
         const s = getSettings();
         s.onboardingGenre = validGenre;
@@ -156,8 +160,8 @@ export async function runQuickStart(genre, rootEl = null, selectedName = '', ins
         ].join(' · ');
 
         setQuickStartStatus(root, `Creating character (${creationDetails})…`);
-        const passChatId = getActiveChatId();
         const { charName } = await generateQuickStartCharacter({
+            chatId: passChatId, canCommit: ownsChat,
             genre: validGenre,
             className,
             level,
@@ -165,7 +169,7 @@ export async function runQuickStart(genre, rootEl = null, selectedName = '', ins
             nameVal,
             instantActionInstructions,
         });
-        if (!canCommitPassForChat(passChatId, getActiveChatId())) {
+        if (!ownsChat()) {
             throw new Error('Quick Start stopped because the active chat changed.');
         }
 
@@ -175,28 +179,28 @@ export async function runQuickStart(genre, rootEl = null, selectedName = '', ins
             wordCount,
             buildInstantActionPromptSection(instantActionInstructions),
         );
-        if (!canCommitPassForChat(passChatId, getActiveChatId())) {
+        if (!ownsChat()) {
             throw new Error('Quick Start stopped because the active chat changed.');
         }
         if (!bio) {
             throw new Error('Persona generation returned empty.');
         }
-        const ok = await addPlayerCardToLorebookAgent(charName, bio, wordCount, { chatId: passChatId });
+        const ok = await addPlayerCardToLorebookAgent(charName, bio, wordCount, { chatId: passChatId, canCommit: ownsChat });
         if (!ok) {
             throw new Error(
-                canCommitPassForChat(passChatId, getActiveChatId())
+                ownsChat()
                     ? 'Could not add Player Card — no active chat.'
                     : 'Quick Start stopped because the active chat changed.',
             );
         }
 
-        if (!canCommitPassForChat(passChatId, getActiveChatId())) {
+        if (!ownsChat()) {
             throw new Error('Quick Start stopped because the active chat changed.');
         }
         setQuickStartStatus(root, 'Creating name-only chat persona…');
-        await activateSillyTavernPersona(charName);
+        await activateSillyTavernPersona(charName, { chatId: passChatId, canCommit: ownsChat });
 
-        if (!canCommitPassForChat(passChatId, getActiveChatId())) {
+        if (!ownsChat()) {
             throw new Error('Quick Start stopped because the active chat changed.');
         }
         const readyDetail = instantActionInstructions ? 'custom instructions' : className;

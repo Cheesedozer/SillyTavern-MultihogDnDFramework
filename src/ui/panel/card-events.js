@@ -2,6 +2,7 @@ import { getRuntimeActions, sectionPages } from '../../app/runtime-bridge.js';
 import { runtimeState } from '../../app/runtime-state.js';
 import { pickGenreCharacterName } from '../../state/character-names.js';
 import { getActiveChatId } from '../../state/chat-persistence.js';
+import { createChatCommitGuard } from '../../state/pass-affinity.js';
 import { setLocationMappingEnabled, LOCATION_MAPPING_SECTION_TAG } from '../../state/section-enabled.js';
 import { applyMapArchitectOpenerToUi, normalizeMapArchitectOpener, syncMapArchitectOpenerNestedVisibility } from '../../../map-architect-opener.js';
 
@@ -298,6 +299,8 @@ export function bindRenderedCardEvents(el, memo, isDetachedContext = false, onRe
 
     el.querySelectorAll('.rt-random-char-btn').forEach(btn => {
         btn.addEventListener('click', async () => {
+            const passChatId = getActiveChatId();
+            const ownsChat = createChatCommitGuard(passChatId, getActiveChatId);
             const archetype = btn.dataset.archetype;
             const levelSelectEl = el.querySelector('#rt-starting-level');
             const levelRawVal = String(levelSelectEl?.value ?? getSettings().onboardingLevel ?? 1);
@@ -452,7 +455,8 @@ export function bindRenderedCardEvents(el, memo, isDetachedContext = false, onRe
                         return;
                     }
                     const personaHints = `\n\n--- PLAYER PREFERENCES & HINTS ---\nAdditional: ${customInstructions}\n`;
-                    await maybeCreateOnboardingPersona(personaHints);
+                    if (!ownsChat()) return;
+                    await maybeCreateOnboardingPersona(personaHints, { chatId: passChatId, canCommit: ownsChat });
                 } finally {
                     el.querySelectorAll('.rt-random-char-btn').forEach(b => b.disabled = false);
                     btn.textContent = '⚙️ Custom';
@@ -463,6 +467,7 @@ export function bindRenderedCardEvents(el, memo, isDetachedContext = false, onRe
             // ── Persona archetype: derive character from the active SillyTavern persona ──
             if (archetype === 'persona') {
                 const persona = await resolveActivePersonaDescription();
+                if (!ownsChat()) return;
                 if (!persona) {
                     toastr['warning'](
                         'No persona is set. Set a persona in SillyTavern (User Settings → Personas) and try again.',
@@ -496,6 +501,7 @@ export function bindRenderedCardEvents(el, memo, isDetachedContext = false, onRe
                     }
                     const personaHints = `\n\n--- PLAYER PREFERENCES & HINTS ---\nSource: the previously active SillyTavern persona.${customInstructions ? `\nAdditional: ${customInstructions}` : ''}\n`;
                     await maybeCreateOnboardingPersona(personaHints, {
+                        chatId: passChatId, canCommit: ownsChat,
                         preserveActivePersona: true,
                         preferredName: personaName,
                     });
@@ -527,7 +533,8 @@ export function bindRenderedCardEvents(el, memo, isDetachedContext = false, onRe
                 const personaHints = customInstructions
                     ? `\n\n--- PLAYER PREFERENCES & HINTS ---\nAdditional: ${customInstructions}\n`
                     : '';
-                await maybeCreateOnboardingPersona(personaHints);
+                if (!ownsChat()) return;
+                await maybeCreateOnboardingPersona(personaHints, { chatId: passChatId, canCommit: ownsChat });
             } finally {
                 el.querySelectorAll('.rt-random-char-btn').forEach(b => b.disabled = false);
             }
@@ -866,7 +873,9 @@ export function bindRenderedCardEvents(el, memo, isDetachedContext = false, onRe
                 ? s.onboardingPersonaWordsCustom
                 : (s.onboardingPersonaWords || '150');
             const wordCount = parseInt(String(wordsRaw || '150'), 10) || 150;
-            const personaOpts = { chatLookback: 3, preferCharacterBlock: true };
+            const passChatId = getActiveChatId();
+            const ownsChat = createChatCommitGuard(passChatId, getActiveChatId);
+            const personaOpts = { chatLookback: 3, preferCharacterBlock: true, chatId: passChatId, canCommit: ownsChat };
             const extraHints = '\n\nSource: existing [CHARACTER] sheet. Match its stats, class, gear, and traits. Use the last 3 story messages only for voice, relationships, and current situation.';
             const prev = btn.dataset.idleLabel || btn.textContent.trim() || 'Create PC Card';
             btn.dataset.idleLabel = prev;
@@ -875,6 +884,7 @@ export function bindRenderedCardEvents(el, memo, isDetachedContext = false, onRe
             try {
                 toastr['info'](`Generating Lorebook Agent persona for "${charName}"…`, 'RPG Tracker');
                 const bio = await generatePersonaBio(charName, wordCount, extraHints, personaOpts);
+                if (!ownsChat()) return;
                 if (bio) {
                     showPersonaConfirmOverlay(bio, charName, wordCount, extraHints, personaOpts);
                 } else {

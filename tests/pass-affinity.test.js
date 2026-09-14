@@ -28,7 +28,7 @@ describe('State Tracker chat-switch affinity', () => {
     });
 
     it('guards runStateModelPass commits against a post-await chat switch', () => {
-        expect(indexSource).toContain("import { canCommitPassForChat } from './src/state/pass-affinity.js';");
+        expect(indexSource).toMatch(/import \{[^}]*\bcanCommitPassForChat\b[^}]*\} from '\.\/src\/state\/pass-affinity\.js';/);
         expect(indexSource).toContain('const passChatId = runtimeState.currentChatId;');
         expect(indexSource).toContain('Stopped because the active chat changed.');
         expect(indexSource).toContain('if (settings.chatLinkEnabled && passChatId) saveChatState(passChatId);');
