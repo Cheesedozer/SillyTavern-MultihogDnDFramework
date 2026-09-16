@@ -2,6 +2,11 @@
 
 All notable changes to the **Multihog D&D Framework** will be documented in this file.
 
+## [2026.8.91] - 2026-09-16
+
+### Fixed
+- Automatic dungeon-map capture retains chat ownership across lorebook awaits and stops writing `dungeonMapHistory` or Lorebook Agent activation into another chat after a switch. Campaign Locations writes keep the pinned prefix.
+
 ## [2026.8.90] - 2026-09-15
 
 ### Fixed
