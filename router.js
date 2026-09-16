@@ -516,11 +516,25 @@ async function saveWorldInfoSnapshot(bookName, bookData, ctx, operationLabel) {
  * Persist the GM's one-time hidden map on a real root Location entry, then
  * return every attached site with its descendant Location records. The map is
  * stored in entry extension metadata so normal lorebook views never reveal it.
+ *
+ * Pin `chatId` / `campaignPrefix` before any lorebook await. A mid-flight chat
+ * switch must not stamp dungeonMapHistory onto the arriving live projection or
+ * target another campaign's Locations book.
  */
-export async function syncDungeonMapsToLocationLorebook(chat, { capture = true } = {}) {
+export async function syncDungeonMapsToLocationLorebook(chat, {
+    capture = true,
+    chatId = null,
+    campaignPrefix = null,
+} = {}) {
     const ctx = SillyTavern.getContext();
-    const prefix = getLivePrefix();
-    if (!prefix) return { sites: {}, changed: false, capturedMaps: 0, errors: ['no campaign prefix is available'] };
+    // Prefer the originating pass. Re-reading getLivePrefix() after awaits can
+    // target another campaign if the user switched chats mid-load.
+    const passChatId = chatId != null && String(chatId).length > 0
+        ? String(chatId)
+        : getActiveChatId();
+    const prefix = String(campaignPrefix || getLivePrefix() || '').trim();
+    const ownsChat = () => canCommitPassForChat(passChatId, getActiveChatId());
+    if (!prefix) return { sites: {}, changed: false, capturedMaps: 0, errors: ['no campaign prefix is available'], ownsChat: ownsChat() };
 
     const bookName = `${prefix}_Locations`;
     const collected = capture ? collectDungeonMapCandidates(chat) : { maps: [], errors: [] };
@@ -528,7 +542,7 @@ export async function syncDungeonMapsToLocationLorebook(chat, { capture = true }
     let bookData = bookKnown ? await loadWorldInfoFresh(bookName, ctx) : null;
     if (!bookData) {
         if (!collected.maps.length) {
-            return { bookName, sites: {}, changed: false, capturedMaps: 0, errors: collected.errors };
+            return { bookName, sites: {}, changed: false, capturedMaps: 0, errors: collected.errors, ownsChat: ownsChat() };
         }
         if (bookKnown) {
             throw new Error(`Refusing to replace existing Locations lorebook "${bookName}" because it could not be loaded.`);
@@ -606,7 +620,11 @@ export async function syncDungeonMapsToLocationLorebook(chat, { capture = true }
 
     if (changed) {
         await saveWorldInfoSnapshot(bookName, bookData, ctx, 'Dungeon map persistence');
-        recordLiveDungeonMapSnapshot(getSettings(), collectDungeonMapHistorySnapshot(bookData.entries, bookName));
+        // Lorebook write used the pinned prefix; refuse live history if ownership
+        // was lost mid-await (arriving chat's dungeonMapHistory would be poisoned).
+        if (ownsChat()) {
+            recordLiveDungeonMapSnapshot(getSettings(), collectDungeonMapHistorySnapshot(bookData.entries, bookName));
+        }
         if (!bookKnown && typeof ctx.updateWorldInfoList === 'function') {
             try { await ctx.updateWorldInfoList(); } catch (_) {}
         }
@@ -621,6 +639,7 @@ export async function syncDungeonMapsToLocationLorebook(chat, { capture = true }
         changed,
         capturedMaps,
         errors: collected.errors,
+        ownsChat: ownsChat(),
     };
 }
 

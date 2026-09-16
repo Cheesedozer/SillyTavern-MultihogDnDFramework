@@ -1238,8 +1238,12 @@ export function installInterceptor() {
         if (dungeonEnabled && dungeonChatId && Array.isArray(_rbChat)) {
             // A swipe/regeneration rejects the latest selected narrator message,
             // so read existing attachments but do not persist a map from it.
+            // Pin before lorebook awaits so a mid-flight chat switch cannot stamp
+            // dungeonMapHistory / activeRouterKeys onto the arriving chat.
+            const passChatId = dungeonChatId;
             const capture = await syncDungeonMapsToLocationLorebook(_rbChat, {
                 capture: !replacingLatestNarratorMessage,
+                chatId: passChatId,
             });
             dungeonState = { version: 3, sites: capture.sites || {} };
             if (capture.changed) {
@@ -1252,7 +1256,11 @@ export function installInterceptor() {
             const currentLocation = findLatestDungeonLocation(_rbChat);
             const mappedSitesInjection = buildMappedSitesInjection(dungeonState.sites);
             const mentionedSites = resolveMentionedDungeonSites(dungeonState, findLatestPlayerInputText(chat));
-            const activeSite = syncDungeonLoreAgentActivation(settings, dungeonState, currentLocation, mentionedSites);
+            const ownsCaptureChat = capture.ownsChat !== false
+                && canCommitPassForChat(passChatId, getActiveChatId());
+            const activeSite = ownsCaptureChat
+                ? syncDungeonLoreAgentActivation(settings, dungeonState, currentLocation, mentionedSites)
+                : resolveActiveDungeonSite(dungeonState, currentLocation);
             const sitesToInject = [activeSite, ...mentionedSites]
                 .filter((site, index, sites) => site && sites.findIndex(candidate =>
                     (candidate?.entryId || candidate?.siteRoot) === (site.entryId || site.siteRoot)) === index);
@@ -3011,12 +3019,25 @@ export async function onGenerationEnded() {
     if (isLocationMappingEnabled(settings)
         && !['swipe', 'regenerate'].includes(String(currentType || '').toLowerCase())) {
         try {
-            const capture = await syncDungeonMapsToLocationLorebook(chat, { capture: true });
+            // Pin before lorebook awaits: live prefix / settings become the arriving chat after switch.
+            const passChatId = getActiveChatId();
+            const capture = await syncDungeonMapsToLocationLorebook(chat, {
+                capture: true,
+                chatId: passChatId,
+            });
             if (capture.changed) {
                 console.info(`[RPG Tracker] Attached ${capture.capturedMaps} dungeon map(s) to root Location lorebook entries.`);
             }
             for (const error of capture.errors || []) {
                 console.error(`[RPG Tracker] Dungeon Reality capture failed: ${error}.`);
+            }
+            if (!canCommitPassForChat(passChatId, getActiveChatId()) || capture.ownsChat === false) {
+                recordSchedulerEvent('generation_ended_aborted', {
+                    reason: 'chat_changed',
+                    generationType: currentType ?? null,
+                    stage: 'dungeon_map_capture',
+                });
+                return;
             }
             const state = { version: 3, sites: capture.sites || {} };
             syncDungeonLoreAgentActivation(settings, state, findLatestDungeonLocation(chat));
