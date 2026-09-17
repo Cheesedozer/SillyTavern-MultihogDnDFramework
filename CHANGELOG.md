@@ -6,6 +6,7 @@ All notable changes to the **Multihog D&D Framework** will be documented in this
 
 ### Fixed
 - Automatic dungeon-map capture retains chat ownership across lorebook awaits and stops writing `dungeonMapHistory` or Lorebook Agent activation into another chat after a switch. Campaign Locations writes keep the pinned prefix.
+- Chat Link conflict RESTORE/OVERWRITE archives displaced memos as plain Linear Stone strings (paired with dungeon-map history). Object stones no longer poison the memo panel, delta view, or "restore as LIVE".
 
 ## [2026.8.90] - 2026-09-15
 

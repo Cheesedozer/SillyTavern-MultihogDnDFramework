@@ -66,6 +66,7 @@ import { stripDungeonMapSection } from './dungeon-reality.js';
 import { cloneCampaignStackToPrefix } from './src/features/chat/clone-campaign-stack.js';
 import { branchCampaignChat, isBranchSeedInProgress } from './src/features/chat/branch-campaign.js';
 import { onChatRenamedMigrate } from './src/features/chat/chat-rename-migrate.js';
+import { archiveDisplacedChatLinkMemo } from './src/features/chat/chat-link-conflict.js';
 import {
     COMPANION_BY_CHAT_KEY,
     MEMO_RECOVERY_KEY,
@@ -2804,23 +2805,13 @@ async function applyChatLinkToggle(turningOn) {
             }));
 
             if (choice === POPUP_RESULT.AFFIRMATIVE) {
-                if (s.currentMemo) {
-                    saved.memoHistory = saved.memoHistory || [];
-                    saved.memoHistory.unshift({
-                        memo: s.currentMemo,
-                        delta: s.lastDelta,
-                        timestamp: Date.now(),
-                        label: 'Global Edit (Pre-Link)',
-                    });
-                    if (saved.memoHistory.length > 50) saved.memoHistory.length = 50;
-                }
+                // memoHistory is string[]; object stones poison the panel / delta /
+                // restore path, and must stay paired with dungeonMapHistory.
+                archiveDisplacedChatLinkMemo(saved, s.currentMemo);
                 loadChatState(runtimeState.currentChatId);
                 toastr['success']('Chat Link ON — restored saved state.', 'RPG Tracker');
             } else if (choice === POPUP_RESULT.NEGATIVE) {
-                if (saved.currentMemo) {
-                    s.memoHistory.unshift(saved.currentMemo);
-                    if (s.memoHistory.length > 50) s.memoHistory.length = 50;
-                }
+                archiveDisplacedChatLinkMemo(s, saved.currentMemo);
                 saveChatState(runtimeState.currentChatId);
                 toastr['success']('Chat Link ON — current state saved to chat.', 'RPG Tracker');
             } else {
