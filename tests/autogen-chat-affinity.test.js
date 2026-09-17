@@ -1,3 +1,4 @@
+import * as chatAffinity from '../src/state/pass-affinity.js';
 import { readFileSync } from 'node:fs';
 import { createContext, runInContext } from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
@@ -25,6 +26,7 @@ describe('auto-generation lorebook affinity', () => {
         const trigger = vi.fn();
         const known = new Set();
         const context = createContext({
+        ...chatAffinity,
             console: { log() {}, error() {} }, getActiveChatId: () => chatId, canCommitPassForChat,
             getSettings: () => ({ portraitAutoGenerateNpcs: true, portraitAutoGenerateLocations: true, locationImages: true }),
             SillyTavern: { getContext: () => ({ chatId, loadWorldInfo: load }) },
@@ -56,6 +58,7 @@ describe.each(['portrait', 'location'])('%s queue affinity', kind => {
         const disable = vi.fn();
         const active = new Set();
         const context = createContext({
+        ...chatAffinity,
             console: { log() {}, warn() {}, error() {} }, getActiveChatId: () => chatId, canCommitPassForChat,
             getSettings: () => ({ portraitAutoGenerateSceneView: kind === 'location' }),
             hasPortrait: () => false, hasLocationImage: () => false,

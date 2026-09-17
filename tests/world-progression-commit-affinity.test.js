@@ -1,3 +1,4 @@
+import * as chatAffinity from '../src/state/pass-affinity.js';
 import { readFileSync } from 'node:fs';
 import { createContext, runInContext } from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
@@ -22,7 +23,8 @@ describe('World Progression action commit ownership', () => {
         const activate = vi.fn(() => wait('activate'));
         const persist = vi.fn();
         const context = createContext({
-            getSettings: () => settings,
+        ...chatAffinity,
+            getSettings: () => settings, getActiveChatId: () => ownsChat ? 'A' : 'B',
             SillyTavern: { getContext: () => ({ loadWorldInfo: load, saveWorldInfo: cache,
                 updateWorldInfoList: () => wait('registry'), executeSlashCommandsWithOptions: activate }) },
             getLinkedPlayerCharacter: () => null, getLivePrefix: () => 'A',

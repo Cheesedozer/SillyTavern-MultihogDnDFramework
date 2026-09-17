@@ -58,7 +58,7 @@ import {
     sliceMemoAndMapHistory,
     unshiftMemoAndMapHistory,
 } from './src/state/dungeon-map-history.js';
-import { canCommitPassForChat, createChatCommitGuard, invalidateChatCommitGuards } from './src/state/pass-affinity.js';
+import { canCommitPassForChat, createChatCommitGuard, invalidateChatCommitGuards, assertChatCommit, chatCommitResult, ignoreChatCancellation } from './src/state/pass-affinity.js';
 import { createPanel as buildPanel } from './src/ui/panel/panel-builder.js';
 import { broadcastStateTrackerStep } from './src/ui/panel/agent-terminal.js';
 import { createChatStateLoader } from './src/features/chat/chat-state-loader.js';
@@ -278,13 +278,15 @@ function formatMapEvolutionCadence(hours) {
 }
 
 async function refreshMapEvolutionSelectedList() {
+    const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
     const $list = $('#rpg_map_evolution_selected_list');
     if (!$list.length) return;
     $list.empty();
     let sites = [];
     try {
-        sites = await listMappedEvolutionSites();
+        sites = chatCommitResult(ownsChat, await listMappedEvolutionSites());
     } catch (error) {
+        if (!ownsChat()) return;
         console.warn('[RPG Tracker] Failed to list mapped sites for Map Evolution:', error);
     }
     if (!sites.length) {
@@ -332,6 +334,7 @@ async function refreshMapEvolutionSelectedList() {
             .css({ width: '56px', minWidth: '56px', fontSize: '0.85em', textAlign: 'center', boxSizing: 'border-box' })
             .val(hasOverride ? String(overrideHours) : '');
         $hours.on('change', function () {
+            if (!ownsChat()) return;
             persistMapEvolutionIntervalOverrideFromUi(site.siteRoot, String($(this).val() || ''));
             void refreshMapEvolutionSelectedList();
         });
@@ -548,6 +551,7 @@ function bindConnectionApplyAllControls() {
 
 /** Confirms then wipes World/Skeleton lorebooks + per-chat WP timer state for the active prefix. */
 async function confirmAndPurgeWorldHistory() {
+    const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
     const ctx = SillyTavern.getContext();
     const prefix = getEffectiveRouterCampaignPrefix(ctx.chatId || '');
     const worldBook = prefix ? `${prefix}_World` : 'World';
@@ -565,19 +569,22 @@ async function confirmAndPurgeWorldHistory() {
             <p style="opacity:0.85;"><b>Note:</b> Lorebooks are stored per campaign prefix, not per chat file. If another chat shares this prefix, it will also lose this World/Skeleton data.</p>
         </div>`;
     const choice = await Popup.show.confirm('Purge World History for this Chat?', body, { okButton: 'Purge', cancelButton: 'Cancel' });
+    if (!ownsChat()) return;
     if (choice !== 1) return;
     try {
-        const result = await purgeWorldHistoryForChat({ includeSkeleton: true });
+        const result = chatCommitResult(ownsChat, await purgeWorldHistoryForChat({ includeSkeleton: true }));
         if (typeof runtimeState.updateWorldProgressionLastFiredDisplayRef === 'function') {
             runtimeState.updateWorldProgressionLastFiredDisplayRef();
         }
         if (typeof runtimeState.updateAgentWorldStatusRef === 'function') runtimeState.updateAgentWorldStatusRef();
         if (typeof globalThis._rpgUpdateSkeletonStatus === 'function') {
-            await globalThis._rpgUpdateSkeletonStatus().catch(() => { });
+            chatCommitResult(ownsChat, await globalThis._rpgUpdateSkeletonStatus().catch(() => { }));
         }
         scheduleAgentManifestRefresh(true);
         toastr['success'](`Purged ${result.worldCleared} report(s) and ${result.skeletonCleared} skeleton entries.`, 'World Progression');
     } catch (e) {
+        if (!ownsChat()) return;
+
         toastr['error'](`Purge failed: ${e.message}`, 'World Progression');
     }
 }
@@ -791,101 +798,112 @@ async function readLoreActivationDebugSnapshot(source) {
  * @param {string} source
  */
 async function syncCampaignPrefixAndWorldsForChat(newChatId, source) {
-    const s2 = getSettings();
-    if (!newChatId) {
-        _loreActivationDebugLast = {
-            ts: new Date().toISOString(),
-            source,
-            stopped: 'empty chat id',
-        };
-        renderLoreActivationDebugPanel();
-        return;
-    }
-    if (!isLorebookAgentRuntimeActive(s2)) {
-        _loreActivationDebugLast = {
-            ts: new Date().toISOString(),
-            source,
-            newChatId,
-            stopped: 'routerDisabled (Lorebook Agent off - no prefix/world sync)',
-        };
-        renderLoreActivationDebugPanel();
-        return;
-    }
-    const prefix = getEffectiveRouterCampaignPrefix(newChatId);
-    if (!prefix) {
-        s2.routerCampaignPrefix = '';
-        syncRouterPrefixDisplays('');
-        void scheduleAgentManifestRefresh();
-        _loreActivationDebugLast = {
-            ts: new Date().toISOString(),
-            source,
-            newChatId,
-            stopped: 'noPrefixFromChatId (transient rename or empty derive)',
-            derivedPrefix: '',
-        };
-        renderLoreActivationDebugPanel();
-        return;
-    }
-    s2.routerCampaignPrefix = prefix;
-    syncRouterPrefixDisplays(prefix);
-
-    const ctx = SillyTavern.getContext();
-    const reg = await refreshWorldInfoRegistry();
-    const allNames = resolveAllWorldNames(ctx, reg);
-    const worldBookName = prefix ? `${prefix}_World` : 'World';
-    let matchingBooks = allNames.filter(n => bookBelongsToPrefix(n, prefix));
-    if (s2.worldProgressionEnabled) {
-        if (allNames.includes(worldBookName) && !matchingBooks.includes(worldBookName)) {
-            matchingBooks.push(worldBookName);
+    const ownsChat = createChatCommitGuard(newChatId, getActiveChatId);
+    if (newChatId && !ownsChat()) return;
+    try {
+        const s2 = getSettings();
+        if (!newChatId) {
+            _loreActivationDebugLast = {
+                ts: new Date().toISOString(),
+                source,
+                stopped: 'empty chat id',
+            };
+            renderLoreActivationDebugPanel();
+            return;
         }
-        try {
-            const worldBook = await ctx.loadWorldInfo(worldBookName);
-            if (worldBook?.entries) {
-                const sorted = Object.entries(worldBook.entries)
-                    .sort(([a], [b]) => Number(a) - Number(b));
-                const allWorldIds = sorted.map(([uid]) => `${worldBookName}::${uid}`);
-                const keepActive = s2.worldProgressionKeepActive || 1;
-                s2.activeWorldKeys = allWorldIds.slice(-keepActive);
-            } else {
+        if (!isLorebookAgentRuntimeActive(s2)) {
+            _loreActivationDebugLast = {
+                ts: new Date().toISOString(),
+                source,
+                newChatId,
+                stopped: 'routerDisabled (Lorebook Agent off - no prefix/world sync)',
+            };
+            renderLoreActivationDebugPanel();
+            return;
+        }
+        const prefix = getEffectiveRouterCampaignPrefix(newChatId);
+        if (!prefix) {
+            s2.routerCampaignPrefix = '';
+            syncRouterPrefixDisplays('');
+            void scheduleAgentManifestRefresh();
+            _loreActivationDebugLast = {
+                ts: new Date().toISOString(),
+                source,
+                newChatId,
+                stopped: 'noPrefixFromChatId (transient rename or empty derive)',
+                derivedPrefix: '',
+            };
+            renderLoreActivationDebugPanel();
+            return;
+        }
+        s2.routerCampaignPrefix = prefix;
+        syncRouterPrefixDisplays(prefix);
+
+        const ctx = SillyTavern.getContext();
+        const reg = chatCommitResult(ownsChat, await refreshWorldInfoRegistry());
+        const allNames = resolveAllWorldNames(ctx, reg);
+        const worldBookName = prefix ? `${prefix}_World` : 'World';
+        let matchingBooks = allNames.filter(n => bookBelongsToPrefix(n, prefix));
+        if (s2.worldProgressionEnabled) {
+            if (allNames.includes(worldBookName) && !matchingBooks.includes(worldBookName)) {
+                matchingBooks.push(worldBookName);
+            }
+            try {
+                const worldBook = chatCommitResult(ownsChat, await ctx.loadWorldInfo(worldBookName));
+                if (worldBook?.entries) {
+                    const sorted = Object.entries(worldBook.entries)
+                        .sort(([a], [b]) => Number(a) - Number(b));
+                    const allWorldIds = sorted.map(([uid]) => `${worldBookName}::${uid}`);
+                    const keepActive = s2.worldProgressionKeepActive || 1;
+                    s2.activeWorldKeys = allWorldIds.slice(-keepActive);
+                } else {
+                    s2.activeWorldKeys = [];
+                }
+            } catch (_) {
+                if (!ownsChat()) return;
+
                 s2.activeWorldKeys = [];
             }
-        } catch (_) {
+        } else {
+            matchingBooks = matchingBooks.filter(n => n !== worldBookName);
             s2.activeWorldKeys = [];
         }
-    } else {
-        matchingBooks = matchingBooks.filter(n => n !== worldBookName);
-        s2.activeWorldKeys = [];
-    }
 
-    if (!s2.chatStates) s2.chatStates = {};
-    if (!s2.chatStates[newChatId]) s2.chatStates[newChatId] = {};
-    s2.chatStates[newChatId].campaignBooks = matchingBooks;
-    saveSettings();
-    try {
-        await activateCampaignBooks({
-            debugSource: source,
-            syncMeta: { newChatId, matchingBooksCount: matchingBooks.length },
-            registry: reg,
-            allNames,
-        });
-    } catch (e) {
-        _loreActivationDebugLast = {
-            ...(_loreActivationDebugLast || {}),
-            ts: new Date().toISOString(),
-            source,
-            syncError: String(e?.message || e),
-        };
-        renderLoreActivationDebugPanel();
+        if (!s2.chatStates) s2.chatStates = {};
+        if (!s2.chatStates[newChatId]) s2.chatStates[newChatId] = {};
+        s2.chatStates[newChatId].campaignBooks = matchingBooks;
+        saveSettings();
+        try {
+            chatCommitResult(ownsChat, await activateCampaignBooks({
+                debugSource: source,
+                syncMeta: { newChatId, matchingBooksCount: matchingBooks.length },
+                registry: reg,
+                allNames,
+            }));
+        } catch (e) {
+            if (!ownsChat()) return;
+
+            _loreActivationDebugLast = {
+                ...(_loreActivationDebugLast || {}),
+                ts: new Date().toISOString(),
+                source,
+                syncError: String(e?.message || e),
+            };
+            renderLoreActivationDebugPanel();
+        }
+        // If ST's in-memory world list was empty but the server had names, run one silent follow-up
+        // so updateWorldInfoList can repopulate the client after our /world pass (avoids needing manual resync).
+        if (reg.usedApiNameFallback && reg.clientWorldNameCount === 0 && matchingBooks.length > 0 && !String(source).includes('registry-followup')) {
+            setTimeout(() => {
+                if (!ownsChat() || newChatId !== runtimeState.currentChatId) return;
+                void syncCampaignPrefixAndWorldsForChat(newChatId, `${source}(registry-followup)`).catch(() => { });
+            }, 450);
+        }
+        void scheduleAgentManifestRefresh();
+
+    } catch (error) {
+        if (ownsChat()) throw error;
     }
-    // If ST's in-memory world list was empty but the server had names, run one silent follow-up
-    // so updateWorldInfoList can repopulate the client after our /world pass (avoids needing manual resync).
-    if (reg.usedApiNameFallback && reg.clientWorldNameCount === 0 && matchingBooks.length > 0 && !String(source).includes('registry-followup')) {
-        setTimeout(() => {
-            if (newChatId !== runtimeState.currentChatId) return;
-            void syncCampaignPrefixAndWorldsForChat(newChatId, `${source}(registry-followup)`).catch(() => { });
-        }, 450);
-    }
-    void scheduleAgentManifestRefresh();
 }
 
 /**
@@ -1963,6 +1981,7 @@ function bookBelongsToPrefix(bookName, prefix) {
  * @returns {Promise<number>} Count of books turned on.
  */
 async function activateCampaignBooks(opts = {}) {
+    const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
     const debugSource = opts.debugSource || 'activateCampaignBooks';
     const s = getSettings();
     const ctx = SillyTavern.getContext();
@@ -1992,13 +2011,13 @@ async function activateCampaignBooks(opts = {}) {
     const prefix = s.routerCampaignPrefix || '';
     if (!prefix) {
         if (typeof ctx.executeSlashCommandsWithOptions === 'function') {
-            const reg = await refreshWorldInfoRegistry();
+            const reg = chatCommitResult(ownsChat, await refreshWorldInfoRegistry());
             const allNames = resolveAllWorldNames(ctx, reg);
             if (allNames.includes('World')) {
                 if (s.worldProgressionEnabled) {
-                    await ctx.executeSlashCommandsWithOptions('/world state=on silent=true "World"').catch(() => { });
+                    chatCommitResult(ownsChat, await ctx.executeSlashCommandsWithOptions('/world state=on silent=true "World"').catch(() => { }));
                 } else {
-                    await ctx.executeSlashCommandsWithOptions('/world state=off silent=true "World"').catch(() => { });
+                    chatCommitResult(ownsChat, await ctx.executeSlashCommandsWithOptions('/world state=off silent=true "World"').catch(() => { }));
                 }
             }
         }
@@ -2011,7 +2030,7 @@ async function activateCampaignBooks(opts = {}) {
         return 0;
     }
 
-    const reg = opts.registry || await refreshWorldInfoRegistry();
+    const reg = opts.registry || chatCommitResult(ownsChat, await refreshWorldInfoRegistry());
     const allNames = opts.allNames || resolveAllWorldNames(ctx, reg);
 
     const worldBookName = prefix ? `${prefix}_World` : 'World';
@@ -2036,10 +2055,10 @@ async function activateCampaignBooks(opts = {}) {
 
     const runWorldCmd = async (cmd) => {
         try {
-            const result = await ctx.executeSlashCommandsWithOptions(cmd, {
+            const result = chatCommitResult(ownsChat, await ctx.executeSlashCommandsWithOptions(cmd, {
                 handleParserErrors: true,
                 handleExecutionErrors: true,
-            });
+            }));
             const row = { cmd };
             if (!result) {
                 row.ok = true;
@@ -2053,16 +2072,18 @@ async function activateCampaignBooks(opts = {}) {
             }
             slashLog.push(row);
         } catch (e) {
+            if (!ownsChat()) return;
+
             slashLog.push({ cmd, ok: false, thrown: String(e?.message || e) });
         }
     };
 
     for (const name of toDeactivate) {
-        await runWorldCmd(`/world state=off silent=true "${name}"`);
+        chatCommitResult(ownsChat, await runWorldCmd(`/world state=off silent=true "${name}"`));
     }
 
     for (const name of bookNames) {
-        await runWorldCmd(`/world state=on silent=true "${name}"`);
+        chatCommitResult(ownsChat, await runWorldCmd(`/world state=on silent=true "${name}"`));
     }
 
     _loreActivationDebugLast = {
@@ -2093,6 +2114,7 @@ async function activateCampaignBooks(opts = {}) {
  * @returns {Promise<void>}
  */
 async function cloneCampaignStack() {
+    const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
     const s = getSettings();
     const ctx = SillyTavern.getContext();
     const liveChatId = ctx.getCurrentChatId?.() || ctx.chatId || runtimeState.currentChatId || '';
@@ -2120,7 +2142,7 @@ async function cloneCampaignStack() {
         return;
     }
 
-    if (!newPrefixRaw && newPrefixRaw !== 0) return;
+    if (!ownsChat() || (!newPrefixRaw && newPrefixRaw !== 0)) return;
     const newPrefix = sanitizeCampaignPrefixString(String(newPrefixRaw).trim());
     if (!newPrefix) {
         toastr['warning']('New prefix cannot be empty or contain only special characters.', 'Clone Stack');
@@ -2288,76 +2310,84 @@ function resetUnseenChatState(s) {
  * This is the preferred method for older/stable ST versions.
  */
 async function refreshExtensionPrompt() {
-    const ctx = SillyTavern.getContext();
-    const { setExtensionPrompt } = ctx;
-    if (typeof setExtensionPrompt !== 'function') return;
-
-    const s = getSettings();
-    if (!isLorebookAgentRuntimeActive(s) || (!s.activeRouterKeys?.length && !s.activeWorldKeys?.length)) {
-        setExtensionPrompt('rpg_tracker_lore', '', 0, 0); // Clear if disabled
-        return;
-    }
-
+    const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
     try {
-        let injectedContext = "";
-        const books = {};
-        for (const k of s.activeRouterKeys) {
-            const [bookName] = k.split('::');
-            const isWorld = bookName.toLowerCase().endsWith('_world') || bookName.toLowerCase() === 'world';
-            if (isWorld) continue;
-            if (!books[bookName]) books[bookName] = await ctx.loadWorldInfo(bookName);
+        const ctx = SillyTavern.getContext();
+        const { setExtensionPrompt } = ctx;
+        if (typeof setExtensionPrompt !== 'function') return;
+
+        const s = getSettings();
+        if (!isLorebookAgentRuntimeActive(s) || (!s.activeRouterKeys?.length && !s.activeWorldKeys?.length)) {
+            setExtensionPrompt('rpg_tracker_lore', '', 0, 0); // Clear if disabled
+            return;
         }
 
-        for (const k of s.activeRouterKeys) {
-            const [bookName, uid] = k.split('::');
-            const isWorld = bookName.toLowerCase().endsWith('_world') || bookName.toLowerCase() === 'world';
-            if (isWorld) continue;
-            const entry = books[bookName]?.entries?.[uid];
-            if (entry && entry.content) {
-                injectedContext += `### [${entry.key?.[0] || entry.comment || uid}]\n${stripDungeonMapSection(entry.content)}\n\n`;
-            }
-        }
-
-        let worldBlock = "";
-        if (s.worldProgressionEnabled && s.activeWorldKeys?.length) {
-            const worldBooks = {};
-            for (const k of s.activeWorldKeys) {
+        try {
+            let injectedContext = "";
+            const books = {};
+            for (const k of s.activeRouterKeys) {
                 const [bookName] = k.split('::');
-                if (!worldBooks[bookName]) worldBooks[bookName] = await ctx.loadWorldInfo(bookName);
+                const isWorld = bookName.toLowerCase().endsWith('_world') || bookName.toLowerCase() === 'world';
+                if (isWorld) continue;
+                if (!books[bookName]) books[bookName] = chatCommitResult(ownsChat, await ctx.loadWorldInfo(bookName));
             }
-            const sortedKeys = [...s.activeWorldKeys].sort((a, b) => {
-                const [, uidA] = a.split('::');
-                const [, uidB] = b.split('::');
-                return Number(uidA) - Number(uidB);
-            });
-            for (const k of sortedKeys) {
+
+            for (const k of s.activeRouterKeys) {
                 const [bookName, uid] = k.split('::');
-                const entry = worldBooks[bookName]?.entries?.[uid];
+                const isWorld = bookName.toLowerCase().endsWith('_world') || bookName.toLowerCase() === 'world';
+                if (isWorld) continue;
+                const entry = books[bookName]?.entries?.[uid];
                 if (entry && entry.content) {
-                    worldBlock += `### [${entry.key?.[0] || entry.comment || 'World Report'}]\n${entry.content}\n\n`;
+                    injectedContext += `### [${entry.key?.[0] || entry.comment || uid}]\n${stripDungeonMapSection(entry.content)}\n\n`;
                 }
             }
+
+            let worldBlock = "";
+            if (s.worldProgressionEnabled && s.activeWorldKeys?.length) {
+                const worldBooks = {};
+                for (const k of s.activeWorldKeys) {
+                    const [bookName] = k.split('::');
+                    if (!worldBooks[bookName]) worldBooks[bookName] = chatCommitResult(ownsChat, await ctx.loadWorldInfo(bookName));
+                }
+                const sortedKeys = [...s.activeWorldKeys].sort((a, b) => {
+                    const [, uidA] = a.split('::');
+                    const [, uidB] = b.split('::');
+                    return Number(uidA) - Number(uidB);
+                });
+                for (const k of sortedKeys) {
+                    const [bookName, uid] = k.split('::');
+                    const entry = worldBooks[bookName]?.entries?.[uid];
+                    if (entry && entry.content) {
+                        worldBlock += `### [${entry.key?.[0] || entry.comment || 'World Report'}]\n${entry.content}\n\n`;
+                    }
+                }
+            }
+
+            if (injectedContext || worldBlock) {
+                let routerBlock = "";
+                if (injectedContext) {
+                    routerBlock += `## ROUTER ACTIVE LORE\n${injectedContext.trim()}\n\n`;
+                }
+                if (worldBlock) {
+                    routerBlock += `## WORLD PROGRESSION REPORTS\n${worldBlock.trim()}\n\n`;
+                }
+                routerBlock = routerBlock.trim();
+                // Set as an extension prompt using default active lore injection position and depth
+                const position = s.loreInjectionPosition ?? 0;
+                const depth = s.loreInjectionDepth ?? 0;
+                setExtensionPrompt('rpg_tracker_lore', routerBlock, position, depth);
+            } else {
+                setExtensionPrompt('rpg_tracker_lore', '', 0, 0);
+            }
+        } catch (e) {
+            if (!ownsChat()) return;
+
+            console.error("[Router Agent] Failed to update extension prompt:", e);
         }
 
-        if (injectedContext || worldBlock) {
-            let routerBlock = "";
-            if (injectedContext) {
-                routerBlock += `## ROUTER ACTIVE LORE\n${injectedContext.trim()}\n\n`;
-            }
-            if (worldBlock) {
-                routerBlock += `## WORLD PROGRESSION REPORTS\n${worldBlock.trim()}\n\n`;
-            }
-            routerBlock = routerBlock.trim();
-            // Set as an extension prompt using default active lore injection position and depth
-            const position = s.loreInjectionPosition ?? 0;
-            const depth = s.loreInjectionDepth ?? 0;
-            setExtensionPrompt('rpg_tracker_lore', routerBlock, position, depth);
-        } else {
-            setExtensionPrompt('rpg_tracker_lore', '', 0, 0);
-        }
-    } catch (e) {
-        console.error("[Router Agent] Failed to update extension prompt:", e);
-    }
+    } catch (error) {
+        if (ownsChat()) throw error;
+}
 }
 
 function installRouterInterceptor() {
@@ -2467,6 +2497,8 @@ function onChatChanged(newChatId) {
     // timer/watermark persists cannot target the arriving chat.
     try { stopRouterPass(); } catch (_) { /* ignore */ }
     try { stopWorldProgressionPass(); } catch (_) { /* ignore */ }
+    try { stopMapUpdaterPass(); } catch (_) { /* ignore */ }
+    try { stopMapEvolutionPass(); } catch (_) { /* ignore */ }
     // Real-Time location art uses the shared image queue and can wait minutes on
     // AI Horde; abort before flipping chat id so a late apply cannot target the
     // arriving chat (background portrait jobs pin chatId separately).
@@ -2491,6 +2523,7 @@ function onChatChanged(newChatId) {
     runtimeState.loreRedoStack = [];
 
     runtimeState.currentChatId = resolvedId;
+    const ownsChat = createChatCommitGuard(resolvedId, getActiveChatId);
     runtimeState.hasActiveDungeonMap = false;
 
     // Snapshot the departing chat's state BEFORE resetRouterTick mutates shared pools.
@@ -2538,31 +2571,32 @@ function onChatChanged(newChatId) {
         // Swap stacks instantly without the 800ms delay or the slow registry scan.
         if (typeof SillyTavern.getContext().executeSlashCommandsWithOptions === 'function') {
             (async () => {
+                if (!ownsChat()) return;
                 const ctx = SillyTavern.getContext();
                 // 1. Turn OFF departing chat's books
                 const oldBooks = s.chatStates?.[oldChatId]?.campaignBooks || [];
                 for (const name of oldBooks) {
-                    await ctx.executeSlashCommandsWithOptions(`/world state=off silent=true "${name}"`).catch(() => { });
+                    chatCommitResult(ownsChat, await ctx.executeSlashCommandsWithOptions(`/world state=off silent=true "${name}"`).catch(() => {}));
                 }
                 // Also turn off departing chat's world book explicitly
                 const oldPrefix = getEffectiveRouterCampaignPrefix(oldChatId);
                 const oldWorldBookName = oldPrefix ? `${oldPrefix}_World` : 'World';
-                await ctx.executeSlashCommandsWithOptions(`/world state=off silent=true "${oldWorldBookName}"`).catch(() => { });
+                chatCommitResult(ownsChat, await ctx.executeSlashCommandsWithOptions(`/world state=off silent=true "${oldWorldBookName}"`).catch(() => {}));
 
                 // 2. Turn ON arriving chat's books
                 for (const name of chatBooks) {
-                    await ctx.executeSlashCommandsWithOptions(`/world state=on silent=true "${name}"`).catch(() => { });
+                    chatCommitResult(ownsChat, await ctx.executeSlashCommandsWithOptions(`/world state=on silent=true "${name}"`).catch(() => {}));
                 }
                 // Turn ON arriving chat's world book explicitly if World Progression is enabled
                 const newWorldBookName = prefix ? `${prefix}_World` : 'World';
                 if (s.worldProgressionEnabled) {
-                    await ctx.executeSlashCommandsWithOptions(`/world state=on silent=true "${newWorldBookName}"`).catch(() => { });
+                    chatCommitResult(ownsChat, await ctx.executeSlashCommandsWithOptions(`/world state=on silent=true "${newWorldBookName}"`).catch(() => {}));
                 } else {
-                    await ctx.executeSlashCommandsWithOptions(`/world state=off silent=true "${newWorldBookName}"`).catch(() => { });
+                    chatCommitResult(ownsChat, await ctx.executeSlashCommandsWithOptions(`/world state=off silent=true "${newWorldBookName}"`).catch(() => {}));
                 }
                 // Re-render folder counts and active dots once the /world transitions complete
                 scheduleAgentManifestRefresh(true);
-            })();
+            })().catch(error => { if (ownsChat()) console.warn('[RPG Tracker] Campaign activation failed:', error); });
         }
     } else if (isLorebookAgentRuntimeActive(s) && resolvedId) {
         // No linked stack yet for the arriving chat.
@@ -2571,45 +2605,53 @@ function onChatChanged(newChatId) {
 
         // Helper: turn off the old books using only the known list — no registry scan.
         const _deactivateOldBooks = async () => {
+            if (!ownsChat()) return;
             const _ctx = SillyTavern.getContext();
             if (typeof _ctx.executeSlashCommandsWithOptions !== 'function') return;
             if (_oldBooksDeferred.length) {
                 for (const name of _oldBooksDeferred) {
-                    await _ctx.executeSlashCommandsWithOptions(`/world state=off silent=true "${name}"`).catch(() => { });
+                    chatCommitResult(ownsChat, await _ctx.executeSlashCommandsWithOptions(`/world state=off silent=true "${name}"`).catch(() => {}));
                 }
             }
             // Also explicitly turn off departing chat's world book
             const oldPrefix = getEffectiveRouterCampaignPrefix(oldChatId);
             const oldWorldBookName = oldPrefix ? `${oldPrefix}_World` : 'World';
-            await _ctx.executeSlashCommandsWithOptions(`/world state=off silent=true "${oldWorldBookName}"`).catch(() => { });
+            chatCommitResult(ownsChat, await _ctx.executeSlashCommandsWithOptions(`/world state=off silent=true "${oldWorldBookName}"`).catch(() => {}));
         };
 
         // Cancel any pending derivation from a previous CHAT_CHANGED.
         if (_prefixDeriveTimer) clearTimeout(_prefixDeriveTimer);
         _prefixDeriveTimer = setTimeout(async () => {
-            _prefixDeriveTimer = null;
-            if (resolvedId !== runtimeState.currentChatId) return;
+            if (!ownsChat()) return;
+            try {
+                _prefixDeriveTimer = null;
+                if (resolvedId !== runtimeState.currentChatId) return;
 
-            // If init BOOTSTRAP is still running the registry scan, wait for it instead of duplicating.
-            if (_bootstrapSyncPromise) {
-                try { await _bootstrapSyncPromise; } catch (_) { }
-                if (getSettings().chatStates?.[resolvedId]?.campaignBooks?.length) {
-                    await _deactivateOldBooks();
-                    return;
+                // If init BOOTSTRAP is still running the registry scan, wait for it instead of duplicating.
+                if (_bootstrapSyncPromise) {
+                    try { chatCommitResult(ownsChat, await _bootstrapSyncPromise); } catch (_) {
+                        if (!ownsChat()) return;
+                    }
+                    if (getSettings().chatStates?.[resolvedId]?.campaignBooks?.length) {
+                        chatCommitResult(ownsChat, await _deactivateOldBooks());
+                        return;
+                    }
                 }
-            }
 
-            // Pass 1 (~800ms): deactivate before the registry scan so books vanish fast.
-            await _deactivateOldBooks();
+                // Pass 1 (~800ms): deactivate before the registry scan so books vanish fast.
+                chatCommitResult(ownsChat, await _deactivateOldBooks());
 
-            // Discover if the new chat actually has any linked books (needs registry scan).
-            await syncCampaignPrefixAndWorldsForChat(resolvedId, 'CHAT_CHANGED(debounced)');
+                // Discover if the new chat actually has any linked books (needs registry scan).
+                chatCommitResult(ownsChat, await syncCampaignPrefixAndWorldsForChat(resolvedId, 'CHAT_CHANGED(debounced)'));
 
-            // Pass 2 (~after scan): ST's deferred world-info state restoration can re-pin
-            // globally active books AFTER our first pass. A follow-up sweep catches this
-            // without needing another registry scan — just direct /world state=off commands.
-            if (resolvedId === runtimeState.currentChatId) {
-                await _deactivateOldBooks();
+                // Pass 2 (~after scan): ST's deferred world-info state restoration can re-pin
+                // globally active books AFTER our first pass. A follow-up sweep catches this
+                // without needing another registry scan — just direct /world state=off commands.
+                if (resolvedId === runtimeState.currentChatId) {
+                    chatCommitResult(ownsChat, await _deactivateOldBooks());
+                }
+            } catch (error) {
+                if (ownsChat()) console.warn('[RPG Tracker] Deferred campaign activation failed:', error);
             }
         }, 800);
     }
@@ -2716,6 +2758,7 @@ function updateChatLinkUI() {
  * @returns {Promise<boolean>} true if the new state was applied
  */
 async function applyChatLinkToggle(turningOn) {
+    const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
     const { Popup, POPUP_RESULT } = SillyTavern.getContext();
     const s = getSettings();
 
@@ -2748,7 +2791,7 @@ async function applyChatLinkToggle(turningOn) {
                     </p>
                 </div>`;
 
-            const choice = await Popup.show.confirm('⚠️ Chat Link Conflict', body, {
+            const choice = chatCommitResult(ownsChat, await Popup.show.confirm('⚠️ Chat Link Conflict', body, {
                 okButton: 'RESTORE',
                 cancelButton: 'OVERWRITE',
                 customButtons: [
@@ -2758,7 +2801,7 @@ async function applyChatLinkToggle(turningOn) {
                         appendAtEnd: true,
                     },
                 ],
-            });
+            }));
 
             if (choice === POPUP_RESULT.AFFIRMATIVE) {
                 if (s.currentMemo) {
@@ -2875,6 +2918,7 @@ function updatePanelStatus() {
  * @param {boolean} isFullContext Whether to perform a long-horizon audit of the entire chat.
  */
 async function runStateModelPass(narrativeOutput, isFullContext = false, overrideLookback = null) {
+    const ownsOperation = createChatCommitGuard(runtimeState.currentChatId, () => runtimeState.currentChatId);
     const settings = getSettings();
     // Capture before any await: after a chat switch the shared settings object
     // belongs to a different partition and must not receive this pass's commit.
@@ -2932,7 +2976,7 @@ async function runStateModelPass(narrativeOutput, isFullContext = false, overrid
         }
 
 
-        const worldLore = await buildLorebookContext();
+        const worldLore = chatCommitResult(ownsOperation, await buildLorebookContext());
         const worldLoreSection = worldLore ? worldLore + '\n\n' : '';
 
         const { chat } = SillyTavern.getContext();
@@ -3104,7 +3148,7 @@ async function runStateModelPass(narrativeOutput, isFullContext = false, overrid
                     suffix;
             }
 
-            const result = await sendStateRequest(settings, systemPrompt, userPrompt, signal, { stream: true, debugSource: 'Tracker' });
+            const result = chatCommitResult(ownsOperation, await sendStateRequest(settings, systemPrompt, userPrompt, signal, { stream: true, debugSource: 'Tracker' }));
 
             if (signal.aborted) break;
             if (!canCommitPassForChat(passChatId, runtimeState.currentChatId)) {
@@ -3134,7 +3178,7 @@ async function runStateModelPass(narrativeOutput, isFullContext = false, overrid
                 }
 
                 // ── FULL COMMIT: treat this chunk as a completed turn ──
-                const mapSnapshot = await captureActiveDungeonMapHistory();
+                const mapSnapshot = chatCommitResult(ownsOperation, await captureActiveDungeonMapHistory());
                 if (signal.aborted) break;
                 if (!canCommitPassForChat(passChatId, runtimeState.currentChatId)) {
                     abandonedForChatSwitch = true;
@@ -3152,7 +3196,7 @@ async function runStateModelPass(narrativeOutput, isFullContext = false, overrid
                         abandonedForChatSwitch = true;
                         break;
                     }
-                    const relResult = await applyStateTrackerRelationshipCommands(relationshipCommands, { passChatId });
+                    const relResult = chatCommitResult(ownsOperation, await applyStateTrackerRelationshipCommands(relationshipCommands, { passChatId }));
                     if (!canCommitPassForChat(passChatId, runtimeState.currentChatId, { aborted: signal.aborted })
                         || relResult?.status === 'chat_changed') {
                         abandonedForChatSwitch = true;
@@ -3197,6 +3241,8 @@ async function runStateModelPass(narrativeOutput, isFullContext = false, overrid
         if (settings.debugMode) console.log("[RPG Tracker] State Model pass complete.");
         return lastDelta;
     } catch (error) {
+        if (!ownsOperation()) return { success: false, status: 'chat_changed', changed: false };
+
         if (error.name === 'AbortError') {
             if (settings.debugMode) console.log("[RPG Tracker] State Model pass aborted by user.");
             broadcastStateTrackerStep('error', 'Stopped by user.');
@@ -3322,6 +3368,7 @@ async function syncActivePersonaDescriptionFromAvatar() {
  * @param {{ systemPromptMode?: 'state_extractor'|'modules_only', connectionSettings?: object }} [options]
  */
 export async function sendDirectPrompt(message, options = {}) {
+    const ownsOperation = createChatCommitGuard(runtimeState.currentChatId, () => runtimeState.currentChatId);
     if (runtimeState.stateModelRunning) {
         toastr['info']('State Model is already running. Please wait.', 'RPG Tracker');
         return { success: false, status: 'busy', changed: false, message: 'State Tracker is already running.' };
@@ -3344,7 +3391,7 @@ export async function sendDirectPrompt(message, options = {}) {
         if (runtimeState.stateController) runtimeState.stateController.abort();
         runtimeState.stateController = new AbortController();
         const signal = runtimeState.stateController.signal;
-        const worldLore = await buildLorebookContext();
+        const worldLore = chatCommitResult(ownsOperation, await buildLorebookContext());
         if (!canCommitPassForChat(passChatId, runtimeState.currentChatId, { aborted: signal.aborted })) {
             broadcastStateTrackerStep('error', signal.aborted ? 'Stopped by user.' : 'Stopped because the active chat changed.');
             return {
@@ -3405,7 +3452,7 @@ export async function sendDirectPrompt(message, options = {}) {
             `## OUTPUT ONLY CHANGED OR NEW SECTIONS:`;
 
         broadcastStateTrackerStep('thought', 'Requesting memo update from State Tracker...');
-        const result = await sendStateRequest(options.connectionSettings || settings, systemPrompt, userPrompt, signal, { stream: true, debugSource: 'Tracker' });
+        const result = chatCommitResult(ownsOperation, await sendStateRequest(options.connectionSettings || settings, systemPrompt, userPrompt, signal, { stream: true, debugSource: 'Tracker' }));
 
         if (!canCommitPassForChat(passChatId, runtimeState.currentChatId, { aborted: signal.aborted })) {
             broadcastStateTrackerStep('error', signal.aborted ? 'Stopped by user.' : 'Stopped because the active chat changed.');
@@ -3436,7 +3483,7 @@ export async function sendDirectPrompt(message, options = {}) {
                 if (settings.historyIndex !== undefined && settings.historyIndex !== -1) {
                     sliceMemoAndMapHistory(settings, settings.historyIndex);
                 }
-                const mapSnapshot = await captureActiveDungeonMapHistory();
+                const mapSnapshot = chatCommitResult(ownsOperation, await captureActiveDungeonMapHistory());
                 if (!canCommitPassForChat(passChatId, runtimeState.currentChatId, { aborted: signal.aborted })) {
                     broadcastStateTrackerStep('error', signal.aborted ? 'Stopped by user.' : 'Stopped because the active chat changed.');
                     return {
@@ -3485,6 +3532,8 @@ export async function sendDirectPrompt(message, options = {}) {
             return { success: false, status: 'no_output', changed: false, message: 'State Tracker returned no output.' };
         }
     } catch (err) {
+        if (!ownsOperation()) return { success: false, status: 'chat_changed', changed: false };
+
         if (err.name === 'AbortError') {
             if (settings.debugMode) console.log("[RPG Tracker] Direct prompt aborted by user.");
             broadcastStateTrackerStep('error', 'Stopped by user.');
@@ -5192,13 +5241,15 @@ function navigateSnapshot(direction) {
 }
 
 async function applyDungeonMapForHistoryView() {
+    const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
     const s = getSettings();
     if (runtimeState.historyViewIndex === -1) {
         runtimeState.dungeonMapHistoryOverlay = null;
         const liveMap = runtimeState.liveDungeonMapBackup;
         runtimeState.liveDungeonMapBackup = null;
         if (liveMap) {
-            try { await restoreActiveDungeonMapHistory(liveMap); } catch (error) {
+            try { chatCommitResult(ownsChat, await restoreActiveDungeonMapHistory(liveMap)); } catch (error) {
+                if (!ownsChat()) return;
                 console.warn('[RPG Tracker] Could not restore live dungeon map occupancy:', error);
             }
         }
@@ -5206,15 +5257,17 @@ async function applyDungeonMapForHistoryView() {
     }
     if (!runtimeState.liveDungeonMapBackup) {
         try {
-            runtimeState.liveDungeonMapBackup = await captureActiveDungeonMapHistory();
+            runtimeState.liveDungeonMapBackup = chatCommitResult(ownsChat, await captureActiveDungeonMapHistory());
         } catch (error) {
+            if (!ownsChat()) return;
             console.warn('[RPG Tracker] Could not snapshot live dungeon map occupancy:', error);
         }
     }
     const overlay = getDungeonMapHistoryEntry(s, runtimeState.historyViewIndex);
     runtimeState.dungeonMapHistoryOverlay = overlay;
     if (overlay) {
-        try { await restoreActiveDungeonMapHistory(overlay); } catch (error) {
+        try { chatCommitResult(ownsChat, await restoreActiveDungeonMapHistory(overlay)); } catch (error) {
+            if (!ownsChat()) return;
             console.warn('[RPG Tracker] Could not roll dungeon map occupancy back to this snapshot:', error);
         }
     }
@@ -6353,8 +6406,9 @@ function organizeConnectionSettingsUI() {
             $('#rpg_map_evolution_selected_list input[type="checkbox"]').prop('checked', false);
             persistMapEvolutionSelectedRootsFromUi();
         });
-        $('#rpg_map_evolution_selected_current').on('click', async function () {
-            const sites = await listMappedEvolutionSites();
+        $('#rpg_map_evolution_selected_current').on('click', ignoreChatCancellation(async function () {
+            const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
+            const sites = chatCommitResult(ownsChat, await listMappedEvolutionSites());
             const current = sites.find(site => site.current);
             if (!current) {
                 toastr.info('The party is not inside a mapped site.', 'Map Evolution');
@@ -6364,8 +6418,9 @@ function organizeConnectionSettingsUI() {
                 $(this).prop('checked', String($(this).attr('data-site-root') || '') === current.siteRoot);
             });
             persistMapEvolutionSelectedRootsFromUi();
-        });
-        $('#rpg_map_evolution_evolve_now').on('click', async function () {
+        }));
+        $('#rpg_map_evolution_evolve_now').on('click', ignoreChatCancellation(async function () {
+            const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
             const roots = persistMapEvolutionSelectedRootsFromUi();
             if (!roots.length) {
                 toastr.warning('Check at least one mapped site.', 'Map Evolution');
@@ -6376,16 +6431,18 @@ function organizeConnectionSettingsUI() {
                 return;
             }
             toastr['info']('Starting Map Evolution pass...');
-            const result = await runMapEvolutionPass({ trigger: 'manual', isManual: true, siteRoots: roots });
+            const result = chatCommitResult(ownsChat, await runMapEvolutionPass({ trigger: 'manual', isManual: true, siteRoots: roots }));
             notifyMapEvolutionPassResult(result);
             updateMapEvolutionScheduleDisplay();
-        });
-        $('#rpg_map_evolution_btn_override_next').on('click', async function () {
+        }));
+        $('#rpg_map_evolution_btn_override_next').on('click', ignoreChatCancellation(async function () {
+            const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
             const s = getSettings();
             let listed = [];
             try {
-                listed = await listMappedEvolutionSites();
+                listed = chatCommitResult(ownsChat, await listMappedEvolutionSites());
             } catch (error) {
+                if (!ownsChat()) return;
                 console.warn('[RPG Tracker] Failed to list mapped sites for Evolution override:', error);
             }
             const currentRoot = listed.find(site => site.current)?.siteRoot || s.mapEvolutionLastSiteRoot || '';
@@ -6444,7 +6501,7 @@ function organizeConnectionSettingsUI() {
             if (s.chatLinkEnabled && runtimeState.currentChatId) saveChatState(runtimeState.currentChatId);
             updateMapEvolutionScheduleDisplay();
             toastr['success'](`Next interval tick set to ${fmtHint(parsedNextMins)}.`, 'Map Evolution');
-        });
+        }));
         $('#rpg_map_evolution_reset_timeline').on('click', function () {
             const s = getSettings();
             s.mapEvolutionLastFiredBySite = {};
@@ -10942,19 +10999,21 @@ RULES:
             updateSettingsLorePrefixReadout();
         });
 
-        $('#rpg_tracker_activate_books_btn').on('click', async function () {
+        $('#rpg_tracker_activate_books_btn').on('click', ignoreChatCancellation(async function () {
+            const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
             const btn = $(this);
             btn.prop('disabled', true);
             try {
-                const count = await activateCampaignBooks({ debugSource: 'manual:settings-activate-books' });
+                const count = chatCommitResult(ownsChat, await activateCampaignBooks({ debugSource: 'manual:settings-activate-books' }));
                 toastr['success'](`Activated ${count} campaign lorebook${count === 1 ? '' : 's'}.`);
-                await refreshAgentManifestNow();
+                chatCommitResult(ownsChat, await refreshAgentManifestNow());
             } catch (e) {
+                if (!ownsChat()) return;
                 toastr['error']('Failed to activate campaign lorebooks.');
             } finally {
                 btn.prop('disabled', false);
             }
-        });
+        }));
 
         $('#rpg_tracker_clone_stack_btn').on('click', async function () {
             const btn = $(this);
@@ -10976,7 +11035,8 @@ RULES:
             }
         });
 
-        $('#rt-agent-router-full-audit, #rt-agent-router-full-audit-panel').on('click', async function () {
+        $('#rt-agent-router-full-audit, #rt-agent-router-full-audit-panel').on('click', ignoreChatCancellation(async function () {
+            const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
             const { Popup } = SillyTavern.getContext();
             const confirmHtml = `
                     <div style="text-align: left; font-size: 0.9em; line-height: 1.5;">
@@ -10985,10 +11045,10 @@ RULES:
                         <p style="margin-top: 8px; color: #ffa500;">⚠️ <b>Do not send messages to the AI while the audit is running.</b></p>
                     </div>
                 `;
-            const confirmed = await Popup.show.confirm('📚 Lorebook Agent Full Audit', confirmHtml, {
+            const confirmed = chatCommitResult(ownsChat, await Popup.show.confirm('📚 Lorebook Agent Full Audit', confirmHtml, {
                 okButton: 'Start Full Audit',
                 cancelButton: 'Cancel'
-            });
+            }));
             if (!confirmed) return;
 
             const btn = $(this);
@@ -11041,7 +11101,7 @@ RULES:
                     // Wait for any lingering router pass to finish (e.g. auto-cleanup from prior chunk)
                     let waitCount = 0;
                     while (isRouterRunning() && waitCount < 60) {
-                        await new Promise(r => setTimeout(r, 500));
+                        chatCommitResult(ownsChat, await new Promise(r => setTimeout(r, 500)));
                         waitCount++;
                     }
                     if (isRouterRunning()) {
@@ -11051,21 +11111,22 @@ RULES:
                     }
 
                     const overrideChatLog = chunks[i].join('\n\n');
-                    const chunkResult = await runRouterPass(null, LOREBOOK_FULL_AUDIT_INSTRUCTION, null, true, [], overrideChatLog);
+                    const chunkResult = chatCommitResult(ownsChat, await runRouterPass(null, LOREBOOK_FULL_AUDIT_INSTRUCTION, null, true, [], overrideChatLog));
                     console.log(`[RPG Tracker] Agent Full Audit: Chunk ${i + 1}/${chunks.length} finished. Result: ${chunkResult}`);
 
                     // Yield to the event loop so the UI can repaint with the agent panel updates
-                    await new Promise(r => setTimeout(r, 100));
+                    chatCommitResult(ownsChat, await new Promise(r => setTimeout(r, 100)));
                 }
 
                 toastr.success(`Agent Full Audit complete (${chunks.length} chunk${chunks.length > 1 ? 's' : ''}).`, "Lorebook Agent");
             } catch (e) {
+                if (!ownsChat()) return;
                 console.error("[RPG Tracker] Agent Full Audit failed:", e);
                 toastr.error("Agent Full Audit failed.");
             } finally {
                 $('#rt-agent-router-full-audit, #rt-agent-router-full-audit-panel').prop('disabled', false);
             }
-        });
+        }));
 
         $('#rpg_tracker_lore_debug_capture').on('click', async function () {
             const btn = $(this);
@@ -11889,6 +11950,7 @@ RULES:
         const $wpConsolidateNow = $('#rpg_world_progression_btn_consolidate_now');
 
         $wpConsolidateNow.on('click', async function () {
+            const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
             const count = parseInt(String($wpConsolidateCount.val() || '')) || 7;
             if (count < 2) {
                 toastr['warning']('Please enter a count of at least 2 reports to consolidate.', 'World Progression');
@@ -11898,12 +11960,14 @@ RULES:
                 return;
             }
 
-            const { runWorldProgressionConsolidationPass } = await import('./router.js');
             $wpConsolidateNow.prop('disabled', true).text('Consolidating…');
             try {
-                const label = await runWorldProgressionConsolidationPass(count);
+                const { runWorldProgressionConsolidationPass } = chatCommitResult(ownsChat, await import('./router.js'));
+                const label = chatCommitResult(ownsChat, await runWorldProgressionConsolidationPass(count));
                 toastr['success'](`Consolidated into "${label}".`, 'World Progression');
             } catch (e) {
+                if (!ownsChat()) return;
+
                 toastr['error'](`Consolidation error: ${e.message}`, 'World Progression');
             } finally {
                 $wpConsolidateNow.prop('disabled', false).html('<i class="fa-solid fa-compress"></i> Consolidate Now');
@@ -11996,11 +12060,12 @@ RULES:
 
         /** Refreshes the skeleton entry count label from the _Skeleton lorebook. */
         async function updateSkeletonStatus() {
+            const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
             const ctx = SillyTavern.getContext();
             const prefix = getEffectiveRouterCampaignPrefix(ctx.chatId || '');
             const skeletonBookName = prefix ? `${prefix}_Skeleton` : 'World_Skeleton';
             try {
-                const book = await ctx.loadWorldInfo(skeletonBookName);
+                const book = chatCommitResult(ownsChat, await ctx.loadWorldInfo(skeletonBookName));
                 const entries = book?.entries ? Object.values(book.entries) : [];
                 // Legacy NPC seeds remain on disk but are intentionally inert
                 // and absent from the macro-skeleton status.
@@ -12013,6 +12078,8 @@ RULES:
                     ? `${count} macro skeleton entries in "${skeletonBookName}" (LOC: ${locCount}, FAC: ${facCount}, CONFLICT: ${conflictCount})`
                     : 'No skeleton generated.');
             } catch (_) {
+                if (!ownsChat()) return;
+
                 $wpSkeletonStatus.text('No skeleton generated.');
             }
         }
@@ -12051,6 +12118,7 @@ RULES:
         if (settings.worldProgressionSkeletonUseLorebooks) void refreshSkeletonLorebookList();
 
         $wpGenerateAtmosphere.on('click', async function () {
+            const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
             const ctx = SillyTavern.getContext();
             if (!ctx.chat || ctx.chat.length === 0) {
                 toastr['warning']('No chat history available. Please type some messages first.', 'World Skeleton');
@@ -12059,13 +12127,15 @@ RULES:
             const lookback = parseInt(String($wpSkeletonAtmosphereLookback.val() || '')) || 30;
             $wpGenerateAtmosphere.prop('disabled', true).html('<i class="fa-solid fa-spinner fa-spin"></i> Generating…');
             try {
-                const { runAtmosphereGenerationPass } = await import('./router.js');
-                const summary = await runAtmosphereGenerationPass(lookback);
+                const { runAtmosphereGenerationPass } = chatCommitResult(ownsChat, await import('./router.js'));
+                const summary = chatCommitResult(ownsChat, await runAtmosphereGenerationPass(lookback));
                 getSettings().worldProgressionSkeletonAtmosphereSummary = summary;
                 $wpSkeletonAtmosphere.val(summary);
                 saveSettings();
                 toastr['success']('Skeleton Source auto-generated successfully.', 'World Skeleton');
             } catch (e) {
+                if (!ownsChat()) return;
+
                 toastr['error'](`Failed to generate Skeleton Source: ${e.message}`, 'World Skeleton');
             } finally {
                 $wpGenerateAtmosphere.prop('disabled', false).html('<i class="fa-solid fa-wand-magic-sparkles"></i> Auto-Generate');
@@ -12106,6 +12176,7 @@ RULES:
         });
 
         $wpGenerateSkeleton.on('click', async function () {
+            const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
             const atmosphere = String($wpSkeletonAtmosphere.val() || '').trim();
             const useLorebooks = !!$wpSkeletonUseLorebooks.prop('checked');
             if (!atmosphere && !useLorebooks) {
@@ -12120,11 +12191,13 @@ RULES:
             }
             $wpGenerateSkeleton.prop('disabled', true).html('<i class="fa-solid fa-spinner fa-spin"></i> Generating…');
             try {
-                const { runSkeletonGenerationPass } = await import('./router.js');
-                const count = await runSkeletonGenerationPass(atmosphere, false);
-                await updateSkeletonStatus();
+                const { runSkeletonGenerationPass } = chatCommitResult(ownsChat, await import('./router.js'));
+                const count = chatCommitResult(ownsChat, await runSkeletonGenerationPass(atmosphere, false));
+                chatCommitResult(ownsChat, await updateSkeletonStatus());
                 toastr['success'](`World Skeleton generated: ${count} entries created.`, 'World Skeleton');
             } catch (e) {
+                if (!ownsChat()) return;
+
                 toastr['error'](`World Skeleton error: ${e.message}`, 'World Skeleton');
             } finally {
                 $wpGenerateSkeleton.prop('disabled', false).html('<i class="fa-solid fa-wand-magic-sparkles"></i> Generate Skeleton');
@@ -12132,6 +12205,7 @@ RULES:
         });
 
         $wpAddSkeleton.on('click', async function () {
+            const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
             const atmosphere = String($wpSkeletonAtmosphere.val() || '').trim();
             const useExisting = !!$wpSkeletonUseExisting.prop('checked');
             const useLorebooks = !!$wpSkeletonUseLorebooks.prop('checked');
@@ -12147,11 +12221,13 @@ RULES:
             }
             $wpAddSkeleton.prop('disabled', true).html('<i class="fa-solid fa-spinner fa-spin"></i> Adding…');
             try {
-                const { runSkeletonGenerationPass } = await import('./router.js');
-                const count = await runSkeletonGenerationPass(atmosphere, true, useExisting);
-                await updateSkeletonStatus();
+                const { runSkeletonGenerationPass } = chatCommitResult(ownsChat, await import('./router.js'));
+                const count = chatCommitResult(ownsChat, await runSkeletonGenerationPass(atmosphere, true, useExisting));
+                chatCommitResult(ownsChat, await updateSkeletonStatus());
                 toastr['success'](`World Skeleton updated: ${count} additional entries added.`, 'World Skeleton');
             } catch (e) {
+                if (!ownsChat()) return;
+
                 toastr['error'](`World Skeleton error: ${e.message}`, 'World Skeleton');
             } finally {
                 $wpAddSkeleton.prop('disabled', false).html('<i class="fa-solid fa-plus"></i> Add to Skeleton');

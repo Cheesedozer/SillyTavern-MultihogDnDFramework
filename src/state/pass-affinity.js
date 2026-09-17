@@ -26,8 +26,41 @@ export function invalidateChatCommitGuards() {
 }
 
 /** Capture once at the start of an operation and pass the guard to nested writes. */
-export function createChatCommitGuard(chatId, getCurrentChatId) {
+export function createChatCommitGuard(chatId, getCurrentChatId, { signal, canCommit } = {}) {
     const generation = chatSwitchGeneration;
     return () => generation === chatSwitchGeneration
+        && !signal?.aborted
+        && (!canCommit || canCommit())
         && canCommitPassForChat(chatId, getCurrentChatId());
+}
+
+/** Stop a chat-owned operation before another write, including after failed I/O. */
+export function assertChatCommit(canCommit) {
+    if (canCommit()) return;
+    const error = new Error('Active chat changed or operation cancelled.');
+    error.name = 'AbortError';
+    error.code = 'CHAT_OWNERSHIP_LOST';
+    throw error;
+}
+
+/**
+ * Check an awaited result synchronously in the caller's continuation:
+ *   const result = chatCommitResult(ownsChat, await load());
+ * An async wrapper would leave another microtask gap between its check and the
+ * caller's write. Catch paths must also check before recovery/fallback writes.
+ */
+export function chatCommitResult(canCommit, result) {
+    assertChatCommit(canCommit);
+    return result;
+}
+
+/** UI/event boundary: expected chat cancellation must not become an unhandled rejection. */
+export function ignoreChatCancellation(handler) {
+    return async function (...args) {
+        try {
+            return await handler.apply(this, args);
+        } catch (error) {
+            if (error?.code !== 'CHAT_OWNERSHIP_LOST') throw error;
+        }
+    };
 }

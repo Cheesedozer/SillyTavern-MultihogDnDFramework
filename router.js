@@ -1,6 +1,6 @@
 import { getSettings, getActiveChatId, getEffectiveRouterCampaignPrefix, persistWorldProgressionTimer, persistRouterLastRunWatermark, persistRouterLastRunTimestamp, persistMapEvolutionState, getNpcRelationshipMax, clampRelationshipValue, buildRouterRelationshipInstruction, sanitizeRouterState, adjustPromptTimestamps, DEFAULT_NPC_SECTIONS, saveChatState, computeUnpinnedActiveCount, extractCharacterBlock, extractPartyBlock, isPcCoreTarget, isAppearanceField, isEquipmentField, isCombatProfileField, getEligibleCoreFieldNames, patchLabeledSection, mergePreservedColorMarkup, expandLorebookPromptTemplate, resolveRecordCategoryTag, getEnabledRouterCategoryTags, getRouterCategoryBookSuffix, buildRouterCategoryMap } from './state-manager.js';
 import { sendStateRequest, sendAgentTurn } from './llm-client.js';
-import { canCommitPassForChat } from './src/state/pass-affinity.js';
+import { canCommitPassForChat, createChatCommitGuard, assertChatCommit, chatCommitResult } from './src/state/pass-affinity.js';
 import { getRequestHeaders } from '../../../../script.js';
 import { extractCurrentTimeStr, cleanMessageContent, parseInWorldTime, formatInWorldTime, findNthUserMessageStartIdx, formatAgentChatLogFromIndex, sanitizeLorebookRecordContent, parseJsonWithColorRepair } from './memo-processor.js';
 import { recordSchedulerEvent } from './swipe-scheduler-debug.js';
@@ -497,18 +497,21 @@ async function deleteWorldInfoFresh(bookName) {
     await evictWorldInfoCache(bookName);
 }
 
-async function saveWorldInfoSnapshot(bookName, bookData, ctx, operationLabel) {
-    const response = await fetch('/api/worldinfo/edit', {
+async function saveWorldInfoSnapshot(bookName, bookData, ctx, operationLabel, canCommit = createChatCommitGuard(getActiveChatId(), getActiveChatId)) {
+    assertChatCommit(canCommit);
+    const response = chatCommitResult(canCommit, await fetch('/api/worldinfo/edit', {
         method: 'POST',
         headers: getRequestHeaders(),
         body: JSON.stringify({ name: bookName, data: bookData }),
-    });
+    }));
     if (!response.ok) {
         throw new Error(`${operationLabel}: failed to restore ${bookName}: HTTP ${response.status}`);
     }
-    const cacheUpdated = await updateWorldInfoCache(bookName, bookData);
+    const cacheUpdated = chatCommitResult(canCommit, await updateWorldInfoCache(bookName, bookData));
     if (!cacheUpdated && typeof ctx.saveWorldInfo === 'function') {
-        try { await ctx.saveWorldInfo(bookName, bookData); } catch (_) { /* backend write already succeeded */ }
+        try { chatCommitResult(canCommit, await ctx.saveWorldInfo(bookName, bookData)); } catch (_) {
+            assertChatCommit(canCommit);
+         /* backend write already succeeded */ }
     }
 }
 
@@ -525,6 +528,7 @@ export async function syncDungeonMapsToLocationLorebook(chat, {
     capture = true,
     chatId = null,
     campaignPrefix = null,
+    canCommit,
 } = {}) {
     const ctx = SillyTavern.getContext();
     // Prefer the originating pass. Re-reading getLivePrefix() after awaits can
@@ -533,13 +537,13 @@ export async function syncDungeonMapsToLocationLorebook(chat, {
         ? String(chatId)
         : getActiveChatId();
     const prefix = String(campaignPrefix || getLivePrefix() || '').trim();
-    const ownsChat = () => canCommitPassForChat(passChatId, getActiveChatId());
+    const ownsChat = createChatCommitGuard(passChatId, getActiveChatId, { canCommit });
     if (!prefix) return { sites: {}, changed: false, capturedMaps: 0, errors: ['no campaign prefix is available'], ownsChat: ownsChat() };
 
     const bookName = `${prefix}_Locations`;
     const collected = capture ? collectDungeonMapCandidates(chat) : { maps: [], errors: [] };
-    const bookKnown = await isWorldInfoBookKnown(bookName, ctx);
-    let bookData = bookKnown ? await loadWorldInfoFresh(bookName, ctx) : null;
+    const bookKnown = chatCommitResult(ownsChat, await isWorldInfoBookKnown(bookName, ctx));
+    let bookData = bookKnown ? chatCommitResult(ownsChat, await loadWorldInfoFresh(bookName, ctx)) : null;
     if (!bookData) {
         if (!collected.maps.length) {
             return { bookName, sites: {}, changed: false, capturedMaps: 0, errors: collected.errors, ownsChat: ownsChat() };
@@ -619,14 +623,16 @@ export async function syncDungeonMapsToLocationLorebook(chat, {
     }
 
     if (changed) {
-        await saveWorldInfoSnapshot(bookName, bookData, ctx, 'Dungeon map persistence');
+        chatCommitResult(ownsChat, await saveWorldInfoSnapshot(bookName, bookData, ctx, 'Dungeon map persistence', ownsChat));
         // Lorebook write used the pinned prefix; refuse live history if ownership
         // was lost mid-await (arriving chat's dungeonMapHistory would be poisoned).
         if (ownsChat()) {
             recordLiveDungeonMapSnapshot(getSettings(), collectDungeonMapHistorySnapshot(bookData.entries, bookName));
         }
         if (!bookKnown && typeof ctx.updateWorldInfoList === 'function') {
-            try { await ctx.updateWorldInfoList(); } catch (_) {}
+            try { chatCommitResult(ownsChat, await ctx.updateWorldInfoList()); } catch (_) {
+                assertChatCommit(ownsChat);
+        }
         }
         if (typeof ctx.reloadWorldInfoEditor === 'function') ctx.reloadWorldInfoEditor(bookName);
         document.dispatchEvent(new CustomEvent('rt_lore_agent_updated'));
@@ -730,7 +736,10 @@ export async function persistArchitectDungeonMap(siteRoot, mapDocument, {
     locationCore = '',
     includeManifest = [],
     hostContext = null,
+    canCommit,
 } = {}) {
+    const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId, { canCommit });
+    assertChatCommit(ownsChat);
     const ctx = SillyTavern.getContext();
     const settings = getSettings();
     const prefix = getLivePrefix();
@@ -743,8 +752,8 @@ export async function persistArchitectDungeonMap(siteRoot, mapDocument, {
     }
 
     const bookName = `${prefix}_Locations`;
-    const bookKnown = await isWorldInfoBookKnown(bookName, ctx);
-    let bookData = bookKnown ? await loadWorldInfoFresh(bookName, ctx) : null;
+    const bookKnown = chatCommitResult(ownsChat, await isWorldInfoBookKnown(bookName, ctx));
+    let bookData = bookKnown ? chatCommitResult(ownsChat, await loadWorldInfoFresh(bookName, ctx)) : null;
     // Work on a detached snapshot so validation or a failed backend save cannot
     // leak partial host/promotion edits through an old cache-backed loader.
     if (bookData) bookData = cloneRouterValue(bookData, null);
@@ -904,7 +913,7 @@ export async function persistArchitectDungeonMap(siteRoot, mapDocument, {
         peerEntry.disable = true;
     }
     rootEntry.disable = true;
-    await saveWorldInfoSnapshot(bookName, bookData, ctx, 'Map Architect persistence');
+    chatCommitResult(ownsChat, await saveWorldInfoSnapshot(bookName, bookData, ctx, 'Map Architect persistence', ownsChat));
     recordLiveDungeonMapSnapshot(settings, collectDungeonMapHistorySnapshot(bookData.entries, bookName));
 
     const chatId = ctx.chatId || (typeof globalThis._rpgCurrentChatId === 'function' ? globalThis._rpgCurrentChatId() : '');
@@ -917,7 +926,9 @@ export async function persistArchitectDungeonMap(siteRoot, mapDocument, {
         void saveSettings();
     }
     if (!bookKnown && typeof ctx.updateWorldInfoList === 'function') {
-        try { await ctx.updateWorldInfoList(); } catch (_) {}
+        try { chatCommitResult(ownsChat, await ctx.updateWorldInfoList()); } catch (_) {
+            assertChatCommit(ownsChat);
+        }
     }
     if (typeof ctx.reloadWorldInfoEditor === 'function') ctx.reloadWorldInfoEditor(bookName);
     document.dispatchEvent(new CustomEvent('rt_lore_agent_updated'));
@@ -935,7 +946,9 @@ export async function persistArchitectDungeonMap(siteRoot, mapDocument, {
  * Replace the root Location's [MAP] from manual JSON editing in the map inspector.
  * Does not create new roots or overwrite a site that lost its map attachment.
  */
-export async function persistManualDungeonMapDocument(siteRoot, mapDocument) {
+export async function persistManualDungeonMapDocument(siteRoot, mapDocument, options = {}) {
+    const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId, options);
+    assertChatCommit(ownsChat);
     const ctx = SillyTavern.getContext();
     const settings = getSettings();
     const prefix = getLivePrefix();
@@ -945,7 +958,7 @@ export async function persistManualDungeonMapDocument(siteRoot, mapDocument) {
     if (!mapDocument || typeof mapDocument !== 'object') throw new Error('Map document is required.');
 
     const bookName = `${prefix}_Locations`;
-    const bookData = await loadWorldInfoFresh(bookName, ctx);
+    const bookData = chatCommitResult(ownsChat, await loadWorldInfoFresh(bookName, ctx));
     if (!bookData?.entries) {
         throw new Error(`Locations lorebook "${bookName}" could not be loaded.`);
     }
@@ -976,7 +989,7 @@ export async function persistManualDungeonMapDocument(siteRoot, mapDocument) {
     reconcileDungeonMapAreaKnowledge(rootEntry, bookData.entries);
     rootEntry.disable = true;
 
-    await saveWorldInfoSnapshot(bookName, bookData, ctx, 'Manual map JSON edit');
+    chatCommitResult(ownsChat, await saveWorldInfoSnapshot(bookName, bookData, ctx, 'Manual map JSON edit', ownsChat));
     recordLiveDungeonMapSnapshot(settings, collectDungeonMapHistorySnapshot(bookData.entries, bookName));
 
     const chatId = ctx.chatId || (typeof globalThis._rpgCurrentChatId === 'function' ? globalThis._rpgCurrentChatId() : '');
@@ -1020,6 +1033,7 @@ export async function locationRootExists(siteRoot) {
  * map is not biased by the deleted occupancy clock.
  */
 export async function deleteDungeonMapFromLocationEntry(id) {
+    const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
     const raw = String(id || '');
     const splitAt = raw.indexOf('::');
     const bookName = splitAt >= 0 ? raw.slice(0, splitAt) : '';
@@ -1027,7 +1041,7 @@ export async function deleteDungeonMapFromLocationEntry(id) {
     if (!bookName || !uid) return { ok: false, error: 'Invalid lorebook entry id.' };
 
     const ctx = SillyTavern.getContext();
-    const bookData = await loadWorldInfoFresh(bookName, ctx);
+    const bookData = chatCommitResult(ownsChat, await loadWorldInfoFresh(bookName, ctx));
     const rootEntry = bookData?.entries?.[uid];
     if (!rootEntry) return { ok: false, error: 'Location entry was not found.' };
     if (!getDungeonMapAttachment(rootEntry)) return { ok: false, error: 'That Location has no private map.' };
@@ -1038,7 +1052,7 @@ export async function deleteDungeonMapFromLocationEntry(id) {
     }
     rootEntry.disable = false;
 
-    await saveWorldInfoSnapshot(bookName, bookData, ctx, 'Dungeon map removal');
+    chatCommitResult(ownsChat, await saveWorldInfoSnapshot(bookName, bookData, ctx, 'Dungeon map removal', ownsChat));
     recordLiveDungeonMapSnapshot(
         getSettings(),
         collectDungeonMapHistorySnapshot(bookData.entries, bookName) || { bookName, maps: [] },
@@ -1086,16 +1100,17 @@ export async function deleteDungeonMapFromLocationEntry(id) {
 
 /** Captures the complete current campaign state for lossless redo. */
 export async function captureRouterLoreState() {
+    const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
     const settings = getSettings();
     const ctx = SillyTavern.getContext();
     const prefix = getLivePrefix();
     const chatId = getRouterChatId(ctx);
     const names = prefix
-        ? (await getWorldInfoNamesSafe()).filter(name => bookBelongsToPrefix(name, prefix) && !isSkeletonBookName(name))
+        ? (chatCommitResult(ownsChat, await getWorldInfoNamesSafe())).filter(name => bookBelongsToPrefix(name, prefix) && !isSkeletonBookName(name))
         : [];
     const bookSnapshots = {};
     for (const name of names) {
-        const book = await loadWorldInfoFresh(name, ctx);
+        const book = chatCommitResult(ownsChat, await loadWorldInfoFresh(name, ctx));
         if (!book) {
             throw new Error(`Cannot safely snapshot current lorebook "${name}".`);
         }
@@ -1117,12 +1132,14 @@ export async function captureActiveDungeonMapHistory(ctx = SillyTavern.getContex
 
 /** Persist a memo-history map snapshot onto the live Locations lorebook. */
 export async function restoreActiveDungeonMapHistory(snapshot, ctx = SillyTavern.getContext()) {
+    const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
     if (!snapshot?.maps?.length || !snapshot.bookName) return false;
-    const book = await loadWorldInfoFresh(snapshot.bookName, ctx);
+    if (snapshot.bookName !== `${getLivePrefix()}_Locations`) return false;
+    const book = chatCommitResult(ownsChat, await loadWorldInfoFresh(snapshot.bookName, ctx));
     if (!book?.entries) return false;
     if (!applyDungeonMapHistorySnapshotToBook(book, snapshot)) return false;
-    await evictWorldInfoCache(snapshot.bookName);
-    await saveWorldInfoSnapshot(snapshot.bookName, book, ctx, 'Dungeon map history restore');
+    chatCommitResult(ownsChat, await evictWorldInfoCache(snapshot.bookName));
+    chatCommitResult(ownsChat, await saveWorldInfoSnapshot(snapshot.bookName, book, ctx, 'Dungeon map history restore', ownsChat));
     if (typeof ctx.reloadWorldInfoEditor === 'function') ctx.reloadWorldInfoEditor(snapshot.bookName);
     document.dispatchEvent(new CustomEvent('rt_lore_agent_updated', { detail: { source: 'map-history-restore' } }));
     return true;
@@ -1130,11 +1147,12 @@ export async function restoreActiveDungeonMapHistory(snapshot, ctx = SillyTavern
 
 /** Load the Locations book plus the active mapped-site context, if any. */
 export async function loadActiveDungeonMapContext() {
+    const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
     const ctx = SillyTavern.getContext();
     const prefix = getLivePrefix();
     if (!prefix) return null;
     const currentLocation = findLatestDungeonLocation(ctx.chat || []);
-    const synced = await syncDungeonMapsToLocationLorebook(ctx.chat || [], { capture: false });
+    const synced = chatCommitResult(ownsChat, await syncDungeonMapsToLocationLorebook(ctx.chat || [], { capture: false }));
     if (!synced.bookName) return { prefix, books: {}, context: null, currentLocation };
     const book = synced.bookData;
     if (!book?.entries) return { prefix, books: {}, context: null, currentLocation };
@@ -1149,11 +1167,12 @@ export async function loadActiveDungeonMapContext() {
 
 /** Load every attached [MAP] in the campaign Locations book. */
 export async function loadAllMappedSiteContexts() {
+    const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
     const ctx = SillyTavern.getContext();
     const prefix = getLivePrefix();
     if (!prefix) return null;
     const currentLocation = findLatestDungeonLocation(ctx.chat || []);
-    const synced = await syncDungeonMapsToLocationLorebook(ctx.chat || [], { capture: false });
+    const synced = chatCommitResult(ownsChat, await syncDungeonMapsToLocationLorebook(ctx.chat || [], { capture: false }));
     if (!synced.bookName) return { prefix, books: {}, sites: [], currentLocation };
     const book = synced.bookData;
     if (!book?.entries) return { prefix, books: {}, sites: [], currentLocation };
@@ -1210,9 +1229,11 @@ export async function snapshotCampaignLocationsBook(ctx = SillyTavern.getContext
 
 /** Replace the live Locations book with a prior snapshot. */
 export async function restoreCampaignLocationsBook(snapshot, ctx = SillyTavern.getContext()) {
+    const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
     if (!snapshot?.bookName || !snapshot?.book) return false;
-    await evictWorldInfoCache(snapshot.bookName);
-    await saveWorldInfoSnapshot(snapshot.bookName, snapshot.book, ctx, 'Map Updater swipe restore');
+    if (snapshot.bookName !== `${getLivePrefix()}_Locations`) return false;
+    chatCommitResult(ownsChat, await evictWorldInfoCache(snapshot.bookName));
+    chatCommitResult(ownsChat, await saveWorldInfoSnapshot(snapshot.bookName, snapshot.book, ctx, 'Map Updater swipe restore', ownsChat));
     if (typeof ctx.reloadWorldInfoEditor === 'function') ctx.reloadWorldInfoEditor(snapshot.bookName);
     document.dispatchEvent(new CustomEvent('rt_lore_agent_updated', { detail: { source: 'map-updater-swipe-restore' } }));
     return true;
@@ -1362,13 +1383,18 @@ function resolveDungeonContextByUid(book, expectedContext) {
 
 /** Save current [MAP] plus observable child chronicles in one Locations-book write. */
 export async function applyDungeonMapCommit(transaction, expectedContext, allBooks, currentTime, options = {}) {
+    const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId, options);
+    assertChatCommit(ownsChat);
     const requireActive = options.requireActive !== false;
     const frozenAreaIds = Array.isArray(options.frozenAreaIds) ? options.frozenAreaIds : [];
     if (!expectedContext) {
         return { ok: false, retryable: false, errors: [{ code: 'MAP_NOT_ACTIVE', path: 'map', received: transaction, hint: 'Map commands are unavailable because no mapped site is currently active.' }] };
     }
     const ctx = SillyTavern.getContext();
-    const freshBook = await loadWorldInfoFresh(expectedContext.bookName, ctx);
+    if (expectedContext.bookName !== `${getLivePrefix()}_Locations`) {
+        return { ok: false, retryable: false, errors: [{ code: 'MAP_CONTEXT_CHANGED', path: 'map', hint: 'The mapped site belongs to another campaign.' }] };
+    }
+    const freshBook = chatCommitResult(ownsChat, await loadWorldInfoFresh(expectedContext.bookName, ctx));
     if (!freshBook?.entries) {
         return { ok: false, retryable: false, errors: [{ code: 'MAP_CONTEXT_CHANGED', path: 'map', received: expectedContext.siteRoot, hint: 'The mapped site could not be reloaded. Do not retry this map mutation.' }] };
     }
@@ -1431,7 +1457,7 @@ export async function applyDungeonMapCommit(transaction, expectedContext, allBoo
     rootEntry.extensions = rootEntry.extensions || {};
     rootEntry.extensions[DUNGEON_MAP_OPERATION_IDS_KEY] = [...priorOperations, { id: applied.operationId, signature }].slice(-100);
     rootEntry.disable = true;
-    await saveWorldInfoSnapshot(expectedContext.bookName, freshBook, ctx, 'Dungeon map transaction');
+    chatCommitResult(ownsChat, await saveWorldInfoSnapshot(expectedContext.bookName, freshBook, ctx, 'Dungeon map transaction', ownsChat));
     allBooks[expectedContext.bookName] = freshBook;
     recordLiveDungeonMapSnapshot(getSettings(), collectDungeonMapHistorySnapshot(freshBook.entries, expectedContext.bookName));
     if (typeof ctx.reloadWorldInfoEditor === 'function') ctx.reloadWorldInfoEditor(expectedContext.bookName);
@@ -1440,8 +1466,8 @@ export async function applyDungeonMapCommit(transaction, expectedContext, allBoo
 }
 
 /** Occupancy commits require the party to still be inside the mapped site. */
-export async function applyActiveDungeonMapCommit(transaction, expectedContext, allBooks, currentTime) {
-    return applyDungeonMapCommit(transaction, expectedContext, allBooks, currentTime, { requireActive: true });
+export async function applyActiveDungeonMapCommit(transaction, expectedContext, allBooks, currentTime, options = {}) {
+    return applyDungeonMapCommit(transaction, expectedContext, allBooks, currentTime, { ...options, requireActive: true });
 }
 
 /**
@@ -1467,7 +1493,7 @@ export async function runRouterPass(narrativeOutput, manualPrompt = null, custom
         stopRouterPass();
         _routerController = new AbortController();
         const _routerSignal = _routerController.signal;
-        const ownsChat = () => canCommitPassForChat(passChatId, getActiveChatId(), { aborted: _routerSignal.aborted });
+        const ownsChat = createChatCommitGuard(passChatId, getActiveChatId, { signal: _routerSignal });
         const assertOwnsChat = () => {
             if (!ownsChat()) {
                 const err = new Error('Active chat changed');
@@ -2814,7 +2840,7 @@ ${recordCategoryGuidance}`;
  * @returns {Promise<{success: boolean, errors: string[], recordedIds: string[]}>}
  */
 async function applyAction(action, allBooks = {}, currentTime = '', breadcrumb = '', isManual = false, options = {}) {
-    const canCommit = options.canCommit || (() => true);
+    const canCommit = createChatCommitGuard(getActiveChatId(), getActiveChatId, options);
     const staleResult = { success: false, status: 'chat_changed', errors: ['Active chat changed'], recordedIds: [] };
     if (!canCommit()) return staleResult;
     const settings = getSettings();
@@ -3588,6 +3614,7 @@ function restoreRouterLoreMetadata(settings, snapshot, removedBookNames = []) {
 }
 
 async function recoverRouterLoreState(recoveryState, attemptedState, originalHistory, settings, ctx) {
+    const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
     if (!recoveryState) return;
     const prefix = recoveryState.campaignPrefix || attemptedState?.campaignPrefix || getLivePrefix();
     const recoveryNames = new Set(Object.keys(recoveryState.bookSnapshots || {}));
@@ -3597,12 +3624,12 @@ async function recoverRouterLoreState(recoveryState, attemptedState, originalHis
     for (const name of Object.keys(attemptedState?.bookSnapshots || {})) {
         if (recoveryNames.has(name)) continue;
         if (!prefix || !bookBelongsToPrefix(name, prefix) || isSkeletonBookName(name)) continue;
-        const currentNames = await getWorldInfoNamesSafe();
-        if (currentNames.includes(name)) await deleteWorldInfoFresh(name);
+        const currentNames = chatCommitResult(ownsChat, await getWorldInfoNamesSafe());
+        if (currentNames.includes(name)) chatCommitResult(ownsChat, await deleteWorldInfoFresh(name));
     }
 
     for (const [name, book] of Object.entries(recoveryState.bookSnapshots || {})) {
-        await saveWorldInfoSnapshot(name, book, ctx, 'Rollback recovery');
+        chatCommitResult(ownsChat, await saveWorldInfoSnapshot(name, book, ctx, 'Rollback recovery', ownsChat));
     }
     restoreRouterLoreMetadata(settings, recoveryState);
     const chatId = recoveryState.chatId || getRouterChatId(ctx);
@@ -3616,7 +3643,9 @@ async function recoverRouterLoreState(recoveryState, attemptedState, originalHis
         settings.routerLastRunChatLength = recoveryState.routerLastRunChatLength;
     }
     if (typeof ctx.updateWorldInfoList === 'function') {
-        try { await ctx.updateWorldInfoList(); } catch (_) {}
+        try { chatCommitResult(ownsChat, await ctx.updateWorldInfoList()); } catch (_) {
+            assertChatCommit(ownsChat);
+        }
     }
     void saveSettings();
 }
@@ -3630,6 +3659,7 @@ async function recoverRouterLoreState(recoveryState, attemptedState, originalHis
  * @returns {Promise<boolean>}
  */
 export async function rollbackRouterPass(index = 0, recoveryState = null) {
+    const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
     const settings = getSettings();
     const ctx = SillyTavern.getContext();
     const history = settings.routerHistory || [];
@@ -3660,7 +3690,7 @@ export async function rollbackRouterPass(index = 0, recoveryState = null) {
         // -- Step 1: Delete lorebooks proven to be CREATED during the pass ------
         // The stored campaign prefix and exact modern delta keep unrelated books
         // out of scope. Legacy snapshots use recorded entry IDs conservatively.
-        const allCurrentNames = await getWorldInfoNamesSafe();
+        const allCurrentNames = chatCommitResult(ownsChat, await getWorldInfoNamesSafe());
         const createdBookNames = prefix
             ? getCreatedLorebookNames({
                 snapshot,
@@ -3675,21 +3705,23 @@ export async function rollbackRouterPass(index = 0, recoveryState = null) {
         }
 
         // Take a complete disk-backed recovery copy before the first mutation.
-        safeRecoveryState = safeRecoveryState || await captureRouterLoreState();
+        safeRecoveryState = safeRecoveryState || chatCommitResult(ownsChat, await captureRouterLoreState());
 
         for (const bookName of createdBookNames) {
-            await deleteWorldInfoFresh(bookName);
+            chatCommitResult(ownsChat, await deleteWorldInfoFresh(bookName));
         }
 
         // Re-index so ST knows about deletions before we start restoring
         if (typeof ctx.updateWorldInfoList === 'function') {
-            try { await ctx.updateWorldInfoList(); } catch (_) {}
+            try { chatCommitResult(ownsChat, await ctx.updateWorldInfoList()); } catch (_) {
+                if (!ownsChat()) return false;
+        }
         }
 
         // -- Step 2: Restore pre-pass lorebooks to their snapshotted state -----
         for (const [bookName, bookData] of Object.entries(snapshot.bookSnapshots || {})) {
-            await evictWorldInfoCache(bookName);
-            await saveWorldInfoSnapshot(bookName, bookData, ctx, 'Rollback');
+            chatCommitResult(ownsChat, await evictWorldInfoCache(bookName));
+            chatCommitResult(ownsChat, await saveWorldInfoSnapshot(bookName, bookData, ctx, 'Rollback', ownsChat));
         }
 
         // -- Step 3: Restore all Lorebook Agent-owned state --------------------
@@ -3708,14 +3740,18 @@ export async function rollbackRouterPass(index = 0, recoveryState = null) {
             void saveSettings();
         }
 
-        recordLiveDungeonMapSnapshot(settings, await captureActiveDungeonMapHistory(ctx));
+        recordLiveDungeonMapSnapshot(settings, chatCommitResult(ownsChat, await captureActiveDungeonMapHistory(ctx)));
         document.dispatchEvent(new CustomEvent('rt_lore_agent_updated', { detail: { source: 'rollback' } }));
         return true;
     } catch (e) {
+        if (!ownsChat()) return false;
+
         console.error('[RPG Tracker] Rollback failed:', e);
         try {
-            await recoverRouterLoreState(safeRecoveryState, snapshot, [...history], settings, ctx);
+            chatCommitResult(ownsChat, await recoverRouterLoreState(safeRecoveryState, snapshot, [...history], settings, ctx));
         } catch (recoveryError) {
+            if (!ownsChat()) return false;
+
             console.error('[RPG Tracker] Rollback recovery also failed:', recoveryError);
         }
         return false;
@@ -3730,6 +3766,7 @@ export async function rollbackRouterPass(index = 0, recoveryState = null) {
  * @returns {Promise<boolean>}
  */
 export async function reapplyRouterPass(prePassSnapshot, postPassState) {
+    const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
     const settings = getSettings();
     const ctx = SillyTavern.getContext();
     const originalHistory = [...(settings.routerHistory || [])];
@@ -3750,7 +3787,7 @@ export async function reapplyRouterPass(prePassSnapshot, postPassState) {
     }
 
     try {
-        safeRecoveryState = await captureRouterLoreState();
+        safeRecoveryState = chatCommitResult(ownsChat, await captureRouterLoreState());
         // Step 1: Put the pre-pass snapshot back so the user can undo again
         if (!settings.routerHistory) settings.routerHistory = [];
         settings.routerHistory.unshift(prePassSnapshot);
@@ -3761,19 +3798,21 @@ export async function reapplyRouterPass(prePassSnapshot, postPassState) {
         const deletedBookNames = Array.isArray(prePassSnapshot.deletedBookNames)
             ? prePassSnapshot.deletedBookNames.filter(name => prefix && bookBelongsToPrefix(name, prefix) && !isSkeletonBookName(name))
             : [];
-        const currentNames = new Set(await getWorldInfoNamesSafe());
+        const currentNames = new Set(chatCommitResult(ownsChat, await getWorldInfoNamesSafe()));
         for (const bookName of deletedBookNames) {
-            if (currentNames.has(bookName)) await deleteWorldInfoFresh(bookName);
+            if (currentNames.has(bookName)) chatCommitResult(ownsChat, await deleteWorldInfoFresh(bookName));
         }
 
         // Step 2: Restore lorebooks to the post-pass state
         for (const [bookName, bookData] of Object.entries(postPassState.bookSnapshots || {})) {
-            await evictWorldInfoCache(bookName);
-            await saveWorldInfoSnapshot(bookName, bookData, ctx, 'Redo');
+            chatCommitResult(ownsChat, await evictWorldInfoCache(bookName));
+            chatCommitResult(ownsChat, await saveWorldInfoSnapshot(bookName, bookData, ctx, 'Redo', ownsChat));
         }
 
         if (typeof ctx.updateWorldInfoList === 'function') {
-            try { await ctx.updateWorldInfoList(); } catch (_) {}
+            try { chatCommitResult(ownsChat, await ctx.updateWorldInfoList()); } catch (_) {
+                if (!ownsChat()) return false;
+            }
         }
 
         // Step 3: Restore all Agent-owned metadata to the post-pass state.
@@ -3785,14 +3824,18 @@ export async function reapplyRouterPass(prePassSnapshot, postPassState) {
             void saveSettings();
         }
 
-        recordLiveDungeonMapSnapshot(settings, await captureActiveDungeonMapHistory(ctx));
+        recordLiveDungeonMapSnapshot(settings, chatCommitResult(ownsChat, await captureActiveDungeonMapHistory(ctx)));
         document.dispatchEvent(new CustomEvent('rt_lore_agent_updated', { detail: { source: 'redo' } }));
         return true;
     } catch (e) {
+        if (!ownsChat()) return false;
+
         console.error('[RPG Tracker] Redo failed:', e);
         try {
-            await recoverRouterLoreState(safeRecoveryState, postPassState, originalHistory, settings, ctx);
+            chatCommitResult(ownsChat, await recoverRouterLoreState(safeRecoveryState, postPassState, originalHistory, settings, ctx));
         } catch (recoveryError) {
+            if (!ownsChat()) return false;
+
             console.error('[RPG Tracker] Redo recovery also failed:', recoveryError);
         }
         return false;
@@ -3940,29 +3983,34 @@ function parseBasicTags(text, archiveBooks) {
 /**
  * Shared helper to add an entry to a specific lorebook.
  */
-async function addLorebookEntry(lorebookName, entryData, allNames) {
+async function addLorebookEntry(lorebookName, entryData, allNames, canCommit = createChatCommitGuard(getActiveChatId(), getActiveChatId)) {
+    assertChatCommit(canCommit);
     const ctx = SillyTavern.getContext();
-    if (!allNames) allNames = await getWorldInfoNamesSafe();
+    if (!allNames) allNames = chatCommitResult(canCommit, await getWorldInfoNamesSafe());
     
     let bookData = null;
     if (allNames.includes(lorebookName)) {
-        try { bookData = await ctx.loadWorldInfo(lorebookName); } catch (_) {}
+        try { bookData = chatCommitResult(canCommit, await ctx.loadWorldInfo(lorebookName)); } catch (_) {
+            assertChatCommit(canCommit);
+        }
     }
     
     if (!bookData) {
         try {
-            const res = await fetch('/api/worldinfo/get', {
+            const res = chatCommitResult(canCommit, await fetch('/api/worldinfo/get', {
                 method: 'POST',
                 headers: getRequestHeaders(),
                 body: JSON.stringify({ name: lorebookName })
-            });
+            }));
             if (res.ok) {
-                const data = await res.json();
+                const data = chatCommitResult(canCommit, await res.json());
                 if (data && typeof data === 'object' && data.entries) {
                     bookData = data;
                 }
             }
-        } catch (_) {}
+        } catch (_) {
+            assertChatCommit(canCommit);
+        }
     }
 
     if (!bookData) {
@@ -4005,7 +4053,7 @@ async function addLorebookEntry(lorebookName, entryData, allNames) {
         groupWeight: 100,
     };
     
-    await ctx.saveWorldInfo(lorebookName, writeTarget);
+    chatCommitResult(canCommit, await ctx.saveWorldInfo(lorebookName, writeTarget));
     
     // Update allNames cache so subsequent calls know this book now exists
     if (!allNames.includes(lorebookName)) allNames.push(lorebookName);
@@ -4032,7 +4080,8 @@ export async function saveSceneToLorebook(hint = "") {
     // Pin before any await: getLivePrefix() and live settings become the arriving chat after switch.
     const passChatId = getActiveChatId();
     const prefix = getLivePrefix();
-    const ownsChat = () => canCommitPassForChat(passChatId, getActiveChatId());
+    const ownsChat = createChatCommitGuard(passChatId, getActiveChatId);
+    if (!prefix || !ownsChat()) return;
 
     try {
         (/** @type {any} */ (toastr)).info("Saving scene...", "Lorebook Agent");
@@ -4067,13 +4116,13 @@ Output a JSON object:
         if (match) {
             const data = JSON.parse(match[0]);
             
-            const lorebookName = prefix ? `${prefix}World_Chronicle` : 'World Chronicle';
+            const lorebookName = `${prefix}_Chronicle`;
             const newId = await addLorebookEntry(lorebookName, {
                 id: data.id,
                 keys: data.keys,
                 content: data.content,
                 comment: 'LORE_SCENE'
-            });
+            }, undefined, ownsChat);
             // Lorebook write used the pinned prefix; refuse live activation if ownership was lost mid-save.
             if (!ownsChat()) {
                 (/** @type {any} */ (toastr)).warning('Scene archived, but activation skipped: active chat changed.', 'Lorebook Agent');
@@ -4081,6 +4130,9 @@ Output a JSON object:
             }
             
             const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            rememberCampaignBook(lorebookName, settings);
+            settings.routerLog = settings.routerLog || [];
+            settings.activeRouterKeys = settings.activeRouterKeys || [];
             settings.routerLog.unshift({
                 time: timestamp,
                 activate: [newId], deactivate: [],
@@ -4093,6 +4145,7 @@ Output a JSON object:
             (/** @type {any} */ (toastr)).success(`Saved scene: ${data.desc}`, 'Lorebook Agent');
         }
     } catch (e) {
+        if (!ownsChat()) return;
         console.error("[Lorebook Agent] Save scene failed:", e);
         (/** @type {any} */ (toastr)).error('Failed to save scene.', 'Lorebook Agent');
     }
@@ -4103,12 +4156,13 @@ Output a JSON object:
  * @param {boolean} skipUpdate When true, skips backend name probes (fast path).
  */
 export async function getLorebookManifest(skipUpdate = false) {
+    const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
     const settings = getSettings();
     const ctx = SillyTavern.getContext();
     const prefix = getLivePrefix();
     sanitizeRouterState(settings);
     
-    const names = await getWorldInfoNamesSafe({ fullProbe: !skipUpdate });
+    const names = chatCommitResult(ownsChat, await getWorldInfoNamesSafe({ fullProbe: !skipUpdate }));
     // With no prefix, show nothing ? the user hasn't set a campaign yet.
     if (!prefix) return [];
     const scopedSet = new Set(names.filter(n => bookBelongsToPrefix(n, prefix)));
@@ -4157,18 +4211,20 @@ export async function getLorebookManifest(skipUpdate = false) {
     if (pinReconciled) void saveSettings();
 
     const booksToLoad = [...scopedSet].filter(n => !isSkeletonBookName(n));
-    const loadedBooks = await Promise.all(booksToLoad.map(async (n) => {
+    const loadedBooks = chatCommitResult(ownsChat, await Promise.all(booksToLoad.map(async (n) => {
         try {
-            const b = skipUpdate ? await ctx.loadWorldInfo(n) : await loadWorldInfoFresh(n, ctx);
+            const b = skipUpdate ? chatCommitResult(ownsChat, await ctx.loadWorldInfo(n)) : chatCommitResult(ownsChat, await loadWorldInfoFresh(n, ctx));
             if (!b?.entries) return null;
             // Full refreshes read disk; write that back so the interceptor's
             // ctx.loadWorldInfo() sees the same entries the Agent UI just showed.
-            if (!skipUpdate) await updateWorldInfoCache(n, b);
+            if (!skipUpdate) chatCommitResult(ownsChat, await updateWorldInfoCache(n, b));
             return { bookName: n, entries: b.entries };
         } catch (_) {
+            assertChatCommit(ownsChat);
+
             return null;
         }
-    }));
+    })));
 
     const manifest = [];
     for (const row of loadedBooks) {
@@ -4196,15 +4252,16 @@ export async function getLorebookManifest(skipUpdate = false) {
  * Deletes a lorebook entry by ID (Book::UID).
  */
 export async function deleteLorebookEntry(id) {
+    const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
     const [bookName, uid] = id.split('::');
     if (!bookName || !uid) return false;
     
     const ctx = SillyTavern.getContext();
-    const book = await ctx.loadWorldInfo(bookName);
+    const book = chatCommitResult(ownsChat, await ctx.loadWorldInfo(bookName));
     if (!book?.entries || !book.entries[uid]) return false;
     
     delete book.entries[uid];
-    await ctx.saveWorldInfo(bookName, book);
+    chatCommitResult(ownsChat, await ctx.saveWorldInfo(bookName, book));
     
     // Also remove from active/pinned lists if it was there
     const settings = getSettings();
@@ -4269,11 +4326,12 @@ export function setLorebookEntryPinned(id, pinned) {
  * @returns {Promise<boolean>}
  */
 export async function updateLorebookEntry(id, fields) {
+    const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
     const [bookName, uid] = id.split('::');
     if (!bookName || !uid) return false;
 
     const ctx = SillyTavern.getContext();
-    const book = await ctx.loadWorldInfo(bookName);
+    const book = chatCommitResult(ownsChat, await ctx.loadWorldInfo(bookName));
     if (!book?.entries || !book.entries[uid]) return false;
 
     const entry = book.entries[uid];
@@ -4282,9 +4340,11 @@ export async function updateLorebookEntry(id, fields) {
     if (fields.key      !== undefined) entry.key     = cleanKeys(fields.key);
 
     try {
-        await ctx.saveWorldInfo(bookName, book);
+        chatCommitResult(ownsChat, await ctx.saveWorldInfo(bookName, book));
         return true;
     } catch (e) {
+        assertChatCommit(ownsChat);
+
         console.error('[RPG Tracker] updateLorebookEntry failed:', e);
         return false;
     }
@@ -4302,6 +4362,7 @@ export async function updateLorebookEntry(id, fields) {
  * @returns {Promise<string[]>} IDs (Book::uid) of entries newly activated this pass.
  */
 export async function scanAssistantOutputForKeywords(narrativeText, opts = {}) {
+    const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
     if (!narrativeText) return [];
     const sweepEnabled = opts.sweepEnabled !== false; // default true
     const settings = getSettings();
@@ -4317,7 +4378,7 @@ export async function scanAssistantOutputForKeywords(narrativeText, opts = {}) {
     // skip those books until Activate / Refresh Manifest).
     const chatId = typeof globalThis._rpgCurrentChatId === 'function' ? globalThis._rpgCurrentChatId() : null;
     const knownBooks = chatId ? (settings.chatStates?.[chatId]?.campaignBooks || []) : [];
-    const registryNames = await getWorldInfoNamesSafe({ fullProbe: knownBooks.length === 0 });
+    const registryNames = chatCommitResult(ownsChat, await getWorldInfoNamesSafe({ fullProbe: knownBooks.length === 0 }));
     const logBookNames = (settings.routerLog || [])
         .flatMap(e => [...(e.record || []), ...(e.activate || [])].map(id => id.split('::')[0]))
         .filter(Boolean);
@@ -4345,7 +4406,7 @@ export async function scanAssistantOutputForKeywords(narrativeText, opts = {}) {
 
     for (const bookName of booksToScan) {
         if (isSkeletonBookName(bookName)) continue;
-        const book = await ctx.loadWorldInfo(bookName);
+        const book = chatCommitResult(ownsChat, await ctx.loadWorldInfo(bookName));
         if (!book?.entries) continue;
         bookCache.set(bookName, book);
 
@@ -4452,7 +4513,7 @@ export async function scanAssistantOutputForKeywords(narrativeText, opts = {}) {
 
             let book = bookCache.get(bookName);
             if (!book) {
-                book = await ctx.loadWorldInfo(bookName);
+                book = chatCommitResult(ownsChat, await ctx.loadWorldInfo(bookName));
                 if (book) bookCache.set(bookName, book);
             }
             const entry = book?.entries?.[uid];
@@ -4666,6 +4727,7 @@ function narrativeMentionsNpcName(narrativeText, npcLabel, opts = {}) {
  * Idempotent — safe to call on every init / chat-change.
  */
 export async function disableManagedEntries() {
+    const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
     const settings = getSettings();
     if (!isLorebookAgentRuntimeActive(settings)) return;
     // In native keyword mode, entries are left enabled for ST's keyword scanner to manage.
@@ -4682,13 +4744,13 @@ export async function disableManagedEntries() {
         if (savedBooks?.length) {
             scoped = savedBooks.filter(n => bookBelongsToPrefix(n, prefix) && !isSkeletonBookName(n));
         } else {
-            const allNames = await getWorldInfoNamesSafe({ fullProbe: false });
+            const allNames = chatCommitResult(ownsChat, await getWorldInfoNamesSafe({ fullProbe: false }));
             scoped = allNames.filter(n => bookBelongsToPrefix(n, prefix) && !isSkeletonBookName(n));
         }
 
-        await Promise.all(scoped.map(async (bookName) => {
+        chatCommitResult(ownsChat, await Promise.all(scoped.map(async (bookName) => {
             try {
-                const book = await ctx.loadWorldInfo(bookName);
+                const book = chatCommitResult(ownsChat, await ctx.loadWorldInfo(bookName));
                 if (!book?.entries) return;
                 let changed = false;
                 for (const entry of Object.values(book.entries)) {
@@ -4698,11 +4760,17 @@ export async function disableManagedEntries() {
                     }
                 }
                 if (changed) {
-                    try { await ctx.saveWorldInfo(bookName, book); } catch (_) {}
+                    try { chatCommitResult(ownsChat, await ctx.saveWorldInfo(bookName, book)); } catch (_) {
+                        if (!ownsChat()) return;
                 }
-            } catch (_) { /* book may not exist yet */ }
-        }));
+                }
+            } catch (_) {
+                if (!ownsChat()) return;
+         /* book may not exist yet */ }
+        })));
     } catch (e) {
+        if (!ownsChat()) return;
+
         console.warn('[RPG Tracker] disableManagedEntries failed:', e);
     }
 }
@@ -4840,11 +4908,14 @@ function countRedundantPairs(content, threshold = 0.6) {
  * @returns {Promise<{ existed: boolean, cleared: number }>}
  */
 async function clearWorldInfoBookEntries(bookName) {
+    const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
     const ctx = SillyTavern.getContext();
     let book = null;
     try {
-        book = await ctx.loadWorldInfo(bookName);
-    } catch (_) { /* book may not exist yet */ }
+        book = chatCommitResult(ownsChat, await ctx.loadWorldInfo(bookName));
+    } catch (_) {
+        assertChatCommit(ownsChat);
+         /* book may not exist yet */ }
 
     const cleared = book?.entries ? Object.keys(book.entries).length : 0;
     if (!book && cleared === 0) {
@@ -4860,16 +4931,20 @@ async function clearWorldInfoBookEntries(bookName) {
         extensions: book?.extensions ?? {},
     };
 
-    await fetch('/api/worldinfo/edit', {
+    chatCommitResult(ownsChat, await fetch('/api/worldinfo/edit', {
         method: 'POST',
         headers: getRequestHeaders(),
         body: JSON.stringify({ name: bookName, data: emptyBook }),
-    });
+    }));
     if (typeof ctx.saveWorldInfo === 'function') {
-        try { await ctx.saveWorldInfo(bookName, emptyBook); } catch (_) { /* non-fatal */ }
+        try { chatCommitResult(ownsChat, await ctx.saveWorldInfo(bookName, emptyBook)); } catch (_) {
+            assertChatCommit(ownsChat);
+         /* non-fatal */ }
     }
     if (typeof ctx.updateWorldInfoList === 'function') {
-        try { await ctx.updateWorldInfoList(); } catch (_) { /* non-fatal */ }
+        try { chatCommitResult(ownsChat, await ctx.updateWorldInfoList()); } catch (_) {
+            assertChatCommit(ownsChat);
+         /* non-fatal */ }
     }
 
     return { existed: true, cleared };
@@ -4883,6 +4958,7 @@ async function clearWorldInfoBookEntries(bookName) {
  * @returns {Promise<{ prefix: string, worldBookName: string, skeletonBookName: string, worldCleared: number, skeletonCleared: number }>}
  */
 export async function purgeWorldHistoryForChat(opts = {}) {
+    const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
     const includeSkeleton = opts.includeSkeleton !== false;
     const settings = getSettings();
     const ctx = SillyTavern.getContext();
@@ -4891,10 +4967,10 @@ export async function purgeWorldHistoryForChat(opts = {}) {
     const worldBookName = prefix ? `${prefix}_World` : 'World';
     const skeletonBookName = prefix ? `${prefix}_Skeleton` : 'World_Skeleton';
 
-    const worldResult = await clearWorldInfoBookEntries(worldBookName);
+    const worldResult = chatCommitResult(ownsChat, await clearWorldInfoBookEntries(worldBookName));
     let skeletonResult = { cleared: 0, existed: false };
     if (includeSkeleton) {
-        skeletonResult = await clearWorldInfoBookEntries(skeletonBookName);
+        skeletonResult = chatCommitResult(ownsChat, await clearWorldInfoBookEntries(skeletonBookName));
     }
 
     settings.activeWorldKeys = [];
@@ -4974,7 +5050,7 @@ export async function runWorldProgressionPass(timeStr, currentMinutes, extraInst
             _worldProgressionController = null;
         }
     };
-    const ownsChat = () => canCommitPassForChat(passChatId, getActiveChatId(), { aborted: signal.aborted });
+    const ownsChat = createChatCommitGuard(passChatId, getActiveChatId, { signal });
     const abortForChatChange = () => {
         broadcastStep('thought', '🌍 World Progression: stopped because the active chat changed.');
         releaseWorldProgressionController();
@@ -5550,6 +5626,7 @@ function parseSkeletonOutput(rawText) {
  * @returns {Promise<number>} Number of skeleton entries created
  */
 export async function runSkeletonGenerationPass(atmosphereSummary, append = false, useExisting = true) {
+    const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
     const settings = getSettings();
     const prefix = getLivePrefix();
     const skeletonBookName = prefix ? `${prefix}_Skeleton` : 'World_Skeleton';
@@ -5560,8 +5637,10 @@ export async function runSkeletonGenerationPass(atmosphereSummary, append = fals
     let skeletonBook = null;
     if (append) {
         try {
-            skeletonBook = await ctx.loadWorldInfo(skeletonBookName);
-        } catch (_) {}
+            skeletonBook = chatCommitResult(ownsChat, await ctx.loadWorldInfo(skeletonBookName));
+        } catch (_) {
+            assertChatCommit(ownsChat);
+    }
     }
     if (!skeletonBook || !skeletonBook.entries) {
         skeletonBook = { entries: {}, name: skeletonBookName, scan_depth: 4, token_budget: 400, recursive: false, extensions: {} };
@@ -5589,13 +5668,13 @@ export async function runSkeletonGenerationPass(atmosphereSummary, append = fals
             ? settings.worldProgressionSkeletonLorebookFilter
             : [];
         if (sourceBookNames.length === 0) {
-            sourceBookNames = await getWorldInfoNamesSafe();
+            sourceBookNames = chatCommitResult(ownsChat, await getWorldInfoNamesSafe());
         }
-        sourceLorebooksStr = await buildSkeletonLorebookSourceContext(
+        sourceLorebooksStr = chatCommitResult(ownsChat, await buildSkeletonLorebookSourceContext(
             sourceBookNames,
             bookName => ctx.loadWorldInfo(bookName),
             { lorebookOnly: !!settings.worldProgressionSkeletonLorebookOnly },
-        );
+        ));
         if (settings.worldProgressionSkeletonLorebookOnly) {
             if (!sourceLorebooksStr) {
                 throw new Error('Lorebook-only mode is enabled, but the selected source lorebooks contain no usable entries.');
@@ -5641,8 +5720,10 @@ Only output factions, locations, and conflicts explicitly mentioned in the suppl
 
     let rawOutput;
     try {
-        rawOutput = await sendStateRequest(routerSettings, systemPrompt, userPrompt);
+        rawOutput = chatCommitResult(ownsChat, await sendStateRequest(routerSettings, systemPrompt, userPrompt));
     } catch (e) {
+        assertChatCommit(ownsChat);
+
         broadcastStep('error', `World Skeleton generation failed: ${e.message}`);
         throw e;
     }
@@ -5687,18 +5768,20 @@ Only output factions, locations, and conflicts explicitly mentioned in the suppl
         uid++;
     }
 
-    const saveRes = await fetch('/api/worldinfo/edit', {
+    const saveRes = chatCommitResult(ownsChat, await fetch('/api/worldinfo/edit', {
         method: 'POST',
         headers: getRequestHeaders(),
         body: JSON.stringify({ name: skeletonBookName, data: skeletonBook })
-    });
+    }));
     if (!saveRes.ok) {
         broadcastStep('error', `World Skeleton: Failed to save lorebook (HTTP ${saveRes.status})`);
         throw new Error(`Save failed: ${saveRes.status}`);
     }
 
     // Register book with ST's in-memory registry
-    try { await ctx.saveWorldInfo(skeletonBookName, skeletonBook); } catch (_) {}
+    try { chatCommitResult(ownsChat, await ctx.saveWorldInfo(skeletonBookName, skeletonBook)); } catch (_) {
+        assertChatCommit(ownsChat);
+    }
 
     // Register in campaignBooks if not already there
     const chatId = typeof globalThis._rpgCurrentChatId === 'function' ? globalThis._rpgCurrentChatId() : null;
@@ -5712,27 +5795,32 @@ Only output factions, locations, and conflicts explicitly mentioned in the suppl
     // Refresh the SillyTavern UI so it updates immediately without F5
     if (typeof ctx.executeSlashCommandsWithOptions === 'function') {
         try {
-            await new Promise(r => setTimeout(r, 300));
+            chatCommitResult(ownsChat, await new Promise(r => setTimeout(r, 300)));
             if (typeof ctx.updateWorldInfoList === 'function') {
-                await ctx.updateWorldInfoList();
+                chatCommitResult(ownsChat, await ctx.updateWorldInfoList());
             }
-            await ctx.executeSlashCommandsWithOptions(`/world state=on silent=true "${skeletonBookName}"`);
+            chatCommitResult(ownsChat, await ctx.executeSlashCommandsWithOptions(`/world state=on silent=true "${skeletonBookName}"`));
             if (typeof ctx.reloadWorldInfoEditor === 'function') {
                 ctx.reloadWorldInfoEditor(skeletonBookName, true);
             }
         } catch (uiErr) {
+            if (!ownsChat()) return;
+
             console.warn('[RPG Tracker] UI refresh after skeleton generation failed:', uiErr);
         }
     } else {
         setTimeout(async () => {
+            if (!ownsChat()) return;
             try {
                 if (typeof ctx.updateWorldInfoList === 'function') {
-                    await ctx.updateWorldInfoList();
+                    chatCommitResult(ownsChat, await ctx.updateWorldInfoList());
                 }
                 if (typeof ctx.reloadWorldInfoEditor === 'function') {
                     ctx.reloadWorldInfoEditor(skeletonBookName, true);
                 }
             } catch (uiErr) {
+                assertChatCommit(ownsChat);
+
                 console.warn('[RPG Tracker] UI refresh after skeleton generation failed:', uiErr);
             }
         }, 200);
@@ -5748,6 +5836,7 @@ Only output factions, locations, and conflicts explicitly mentioned in the suppl
  * @returns {Promise<string>} - The consolidated label (e.g., "Days 1-7").
  */
 export async function runWorldProgressionConsolidationPass(targetCount) {
+    const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
     const settings = getSettings();
     const prefix = getLivePrefix();
     const worldBookName = prefix ? `${prefix}_World` : 'World';
@@ -5764,14 +5853,16 @@ export async function runWorldProgressionConsolidationPass(targetCount) {
     };
 
     const ctx = SillyTavern.getContext();
-    const allBookNames = await getWorldInfoNamesSafe();
+    const allBookNames = chatCommitResult(ownsChat, await getWorldInfoNamesSafe());
     const archiveBooks = {};
     for (const n of allBookNames) {
         if (prefix && !bookBelongsToPrefix(n, prefix)) continue;
         try {
-            const b = await ctx.loadWorldInfo(n);
+            const b = chatCommitResult(ownsChat, await ctx.loadWorldInfo(n));
             if (b?.entries) archiveBooks[n] = b;
-        } catch (_) {}
+        } catch (_) {
+            assertChatCommit(ownsChat);
+        }
     }
 
     const currentWorldBook = archiveBooks[worldBookName] ?? null;
@@ -5834,14 +5925,16 @@ ${rawDump}`;
 
     broadcastStep('thought', `\uD83C\uDF0D World Progression: Manually consolidating ${toConsolidate.length} reports into "${consolidatedLabel}"...`);
 
-    const consolidatedContent = await sendStateRequest(routerSettings, consolidationSystemPrompt, consolidationUserPrompt, null, { stream: true, debugSource: 'World Progression' });
+    const consolidatedContent = chatCommitResult(ownsChat, await sendStateRequest(routerSettings, consolidationSystemPrompt, consolidationUserPrompt, null, { stream: true, debugSource: 'World Progression' }));
     if (!consolidatedContent || !consolidatedContent.trim()) {
         throw new Error("LLM returned an empty response during consolidation.");
     }
 
     // Reload for fresh write
     let freshBook = null;
-    try { freshBook = await ctx.loadWorldInfo(worldBookName); } catch (_) {}
+    try { freshBook = chatCommitResult(ownsChat, await ctx.loadWorldInfo(worldBookName)); } catch (_) {
+        assertChatCommit(ownsChat);
+    }
     if (!freshBook?.entries) freshBook = currentWorldBook;
 
     const allUids = Object.keys(freshBook.entries).map(Number).filter(n => !isNaN(n));
@@ -5870,12 +5963,14 @@ ${rawDump}`;
         settings.activeWorldKeys = (settings.activeWorldKeys || []).filter(k => k !== fullId);
     }
 
-    await fetch('/api/worldinfo/edit', {
+    chatCommitResult(ownsChat, await fetch('/api/worldinfo/edit', {
         method: 'POST',
         headers: getRequestHeaders(),
         body: JSON.stringify({ name: worldBookName, data: freshBook })
-    });
-    try { await ctx.saveWorldInfo(worldBookName, freshBook); } catch (_) {}
+    }));
+    try { chatCommitResult(ownsChat, await ctx.saveWorldInfo(worldBookName, freshBook)); } catch (_) {
+        assertChatCommit(ownsChat);
+    }
 
     broadcastStep('finish', `\uD83C\uDF0D World Progression: "${consolidatedLabel}" consolidated — ${toDeleteUids.length} raw reports removed.`);
     return consolidatedLabel;
@@ -5888,6 +5983,7 @@ ${rawDump}`;
  * @returns {Promise<string>}
  */
 export async function runAtmosphereGenerationPass(lookbackCount) {
+    const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
     const settings = getSettings();
     const ctx = SillyTavern.getContext();
     const chat = ctx.chat || [];
@@ -5968,7 +6064,7 @@ Generate the Skeleton Source:`;
         routerSettings.openaiModel = settings.openaiModel;
     }
 
-    const rawOutput = await sendStateRequest(routerSettings, systemPrompt, userPrompt);
+    const rawOutput = chatCommitResult(ownsChat, await sendStateRequest(routerSettings, systemPrompt, userPrompt));
     if (!rawOutput?.trim()) throw new Error('LLM returned an empty response.');
 
     // Clean up surrounding quotes/newlines

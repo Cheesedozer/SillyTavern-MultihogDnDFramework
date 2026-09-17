@@ -15,9 +15,9 @@ function sliceRunRouterPass() {
 describe('Lorebook Agent chat ownership', () => {
     it('pins passChatId and refuses commits after abort or chat switch', () => {
         const fn = sliceRunRouterPass();
-        expect(routerSource).toContain("import { canCommitPassForChat } from './src/state/pass-affinity.js'");
+        expect(routerSource).toContain("import { canCommitPassForChat, createChatCommitGuard, assertChatCommit, chatCommitResult } from './src/state/pass-affinity.js'");
         expect(fn).toContain('const passChatId = getActiveChatId()');
-        expect(fn).toContain('canCommitPassForChat(passChatId, getActiveChatId(), { aborted: _routerSignal.aborted })');
+        expect(fn).toContain('createChatCommitGuard(passChatId, getActiveChatId, { signal: _routerSignal })');
         expect(fn).toContain('async function commitOwnedAction(action)');
         expect(fn).toContain('{ canCommit: ownsChat }');
         expect(fn).toContain("result?.status === 'chat_changed'");
@@ -69,7 +69,7 @@ describe('Lorebook Agent chat ownership', () => {
         const pinPrefixAt = fn.indexOf('const prefix = getLivePrefix()');
         expect(pinPrefixAt).toBeGreaterThan(-1);
         expect(fn.indexOf('getLivePrefix()', llmAt)).toBe(-1);
-        expect(fn).toContain('`${prefix}World_Chronicle`');
+        expect(fn).toContain('`${prefix}_Chronicle`');
         const addAt = fn.indexOf('await addLorebookEntry(');
         expect(addAt).toBeGreaterThan(llmAt);
         expect(fn.indexOf('ownsChat()', addAt)).toBeGreaterThan(addAt);

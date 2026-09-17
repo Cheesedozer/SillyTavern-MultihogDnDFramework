@@ -1,3 +1,4 @@
+import * as chatAffinity from '../src/state/pass-affinity.js';
 import { readFileSync } from 'node:fs';
 import { createContext, runInContext } from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
@@ -48,6 +49,7 @@ function harness({ basic = true, pause = 'llm', cleanupEvery = 0 } = {}) {
     const action = () => ({ record: [], update: [], activate: ['A_NPCs::0'], deactivate: [],
         rewrite: [{ id: 'A_NPCs::0', content: 'Short chronicle' }], consolidate: [] });
     const context = createContext({
+        ...chatAffinity,
         AbortController, console, canCommitPassForChat, LORE_EXISTENCE_RULE: '',
         getActiveChatId: () => chatId, getLivePrefix: () => chatId,
         getSettings: () => settings, isLocationMappingEnabled: () => false,
@@ -157,8 +159,9 @@ describe('Lorebook Agent async ownership', () => {
         const gate = deferred();
         const save = vi.fn();
         const context = createContext({
+        ...chatAffinity,
             migratePortraitMapKey: () => ({ moved: true, displaced: 'old.png' }),
-            getSettings: () => ({}), isManagedPortraitPath: () => true,
+            getSettings: () => ({}), getActiveChatId: () => 'A', isManagedPortraitPath: () => true,
             countPortraitPathRefs: () => 0, deletePortraitFile: () => gate.promise, saveSettings: save,
         });
         runInContext(functionSource('renamePortraitEntity', portraitSource), context);

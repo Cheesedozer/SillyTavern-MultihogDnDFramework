@@ -4,7 +4,7 @@ import { normalizeLocationPath, resolveLocationImageWithMeta, triggerBackgroundL
 import { resolvePortraitDisplaySrc, lookupCustomPortraitSrc } from './portrait-storage.js';
 import { resolveCurrentLocationPath, formatLocationBreadcrumb } from './location-resolver.js';
 import { isWorldInfoBookKnown, scanRecentOutputForPresentNpcs } from './router.js';
-import { canCommitPassForChat } from './src/state/pass-affinity.js';
+import { canCommitPassForChat, createChatCommitGuard, assertChatCommit, chatCommitResult } from './src/state/pass-affinity.js';
 import { canUseSceneMemo } from './src/state/scene-affinity.js';
 import { resolveDungeonMapForLocation, resolveDungeonMapFromHistorySnapshot, stripDungeonMapSection } from './dungeon-reality.js';
 import { buildDungeonMapGraph, renderDungeonMapEmbedHtml } from './dungeon-map-graph.js';
@@ -212,6 +212,7 @@ export async function buildImmersionSceneState(memo, settings) {
     const s = settings || getSettings();
     const ctx = SillyTavern.getContext();
     const backgroundChatId = ctx.chatId;
+    const ownsBackground = createChatCommitGuard(backgroundChatId, () => SillyTavern.getContext().chatId);
     const backgroundMemo = memo ?? s.currentMemo;
     const backgroundMemoCurrent = canUseSceneMemo(s, backgroundChatId, backgroundMemo);
 
@@ -253,7 +254,7 @@ export async function buildImmersionSceneState(memo, settings) {
 
     const locationImage = storagePath ? resolveLocationImageWithMeta(storagePath).src : '';
     const liveCtx = SillyTavern.getContext();
-    if (backgroundRequest === latestBackgroundSceneRequest
+    if (ownsBackground() && backgroundRequest === latestBackgroundSceneRequest
         && backgroundMemoCurrent
         && canUseSceneMemo(getSettings(), backgroundChatId, backgroundMemo)
         && backgroundChatId === liveCtx.chatId
@@ -529,6 +530,7 @@ function getRealtimeTriggerMode(s) {
  * Does not require Visuals/Map to be open.
  */
 export async function runRealtimeSceneArtCheck() {
+    const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
     const s = getSettings();
     if (!s.portraitAutoGenerateSceneView) return;
     if (!s.locationImages || s.enablePortraits === false) return;
@@ -541,7 +543,7 @@ export async function runRealtimeSceneArtCheck() {
     const memoAtStart = s.currentMemo;
     if (!canUseSceneMemo(s, passChatId, memoAtStart)) return;
     try {
-        const scene = await buildImmersionSceneState(memoAtStart, s);
+        const scene = chatCommitResult(ownsChat, await buildImmersionSceneState(memoAtStart, s));
         if (!canCommitPassForChat(passChatId, getActiveChatId())) return;
         if (!canUseSceneMemo(getSettings(), passChatId, memoAtStart)) return;
         maybeAutoGenerateImmersionSceneArt(scene, () => {
@@ -550,6 +552,8 @@ export async function runRealtimeSceneArtCheck() {
             }
         });
     } catch (err) {
+        if (!ownsChat()) return;
+
         console.error('[RPG Tracker] runRealtimeSceneArtCheck failed:', err);
     }
 }

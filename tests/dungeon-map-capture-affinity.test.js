@@ -15,16 +15,16 @@ function sliceSyncDungeonMaps() {
 describe('Dungeon map capture chat ownership', () => {
     it('pins chat/prefix and skips live history when affinity is lost', () => {
         const fn = sliceSyncDungeonMaps();
-        expect(routerSource).toContain("import { canCommitPassForChat } from './src/state/pass-affinity.js'");
+        expect(routerSource).toContain("import { canCommitPassForChat, createChatCommitGuard, assertChatCommit, chatCommitResult } from './src/state/pass-affinity.js'");
         expect(fn).toContain('chatId = null');
         expect(fn).toContain('campaignPrefix = null');
         expect(fn).toContain('const passChatId = chatId != null && String(chatId).length > 0');
         expect(fn).toContain("const prefix = String(campaignPrefix || getLivePrefix() || '').trim()");
-        expect(fn).toContain('const ownsChat = () => canCommitPassForChat(passChatId, getActiveChatId())');
+        expect(fn).toContain('const ownsChat = createChatCommitGuard(passChatId, getActiveChatId, { canCommit })');
 
         const knownAt = fn.indexOf('await isWorldInfoBookKnown(');
         const loadAt = fn.indexOf('await loadWorldInfoFresh(');
-        const saveAt = fn.indexOf("await saveWorldInfoSnapshot(bookName, bookData, ctx, 'Dungeon map persistence')");
+        const saveAt = fn.indexOf("await saveWorldInfoSnapshot(bookName, bookData, ctx, 'Dungeon map persistence', ownsChat)");
         expect(knownAt).toBeGreaterThan(fn.indexOf('const passChatId'));
         expect(knownAt).toBeGreaterThan(fn.indexOf('const prefix'));
         expect(loadAt).toBeGreaterThan(knownAt);

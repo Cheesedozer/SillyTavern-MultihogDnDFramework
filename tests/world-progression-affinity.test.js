@@ -1,3 +1,4 @@
+import * as chatAffinity from '../src/state/pass-affinity.js';
 import { readFileSync } from 'node:fs';
 import { createContext, runInContext } from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
@@ -44,6 +45,7 @@ describe('World Progression chat ownership', () => {
         const apply = vi.fn();
         const broadcast = vi.fn();
         const context = createContext({
+        ...chatAffinity,
             console: { log() {}, warn() {}, error() {} },
             AbortController,
             canCommitPassForChat,
@@ -115,6 +117,7 @@ describe('World Progression chat ownership', () => {
         const persist = vi.fn();
         const apply = vi.fn();
         const context = createContext({
+        ...chatAffinity,
             console: { log() {}, warn() {}, error() {} },
             AbortController,
             canCommitPassForChat,

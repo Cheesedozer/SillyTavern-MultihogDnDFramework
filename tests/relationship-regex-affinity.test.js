@@ -1,3 +1,4 @@
+import * as chatAffinity from '../src/state/pass-affinity.js';
 import { readFileSync } from 'node:fs';
 import { createContext, runInContext } from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
@@ -24,7 +25,8 @@ function harness() {
     const rollback = vi.fn();
     const resolveName = vi.fn().mockResolvedValue('A_NPCs::1');
     const context = createContext({
-        console: { log() {}, warn() {}, error() {} }, runtimeState: runtime, getSettings: () => settings,
+        ...chatAffinity,
+        console: { log() {}, warn() {}, error() {} }, runtimeState: runtime, getActiveChatId: () => runtime.currentChatId, getSettings: () => settings,
         SillyTavern: { getContext: () => ({ chat: [msg] }) }, _rpgIsGenerating: false,
         getRelationshipUpdateMode: () => 'regex', RELATIONSHIP_UPDATE_MODES: { REGEX: 'regex' },
         canCommitPassForChat, cleanMessageContent: message => message.mes,

@@ -1,3 +1,5 @@
+import { getActiveChatId } from '../../../state-manager.js';
+import { createChatCommitGuard, assertChatCommit, chatCommitResult, ignoreChatCancellation } from '../../state/pass-affinity.js';
 /** Wire per-tab Terminal/Direct Prompt send bars in the Lorebook Agent panel. */
 
 import { AGENT_TERMINAL_TAB_IDS } from './agent-terminal.js';
@@ -127,17 +129,21 @@ export function wireAgentTerminalDirectPrompts({
         return { kind: 'error', message: 'Map Evolution could not complete.' };
     };
 
-    const resolveCurrentSiteRoot = async () => {
+    const resolveCurrentSiteRoot = ignoreChatCancellation(async () => {
+        const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
+
         const sites = typeof listMappedEvolutionSites === 'function'
-            ? await listMappedEvolutionSites().catch(() => [])
+            ? chatCommitResult(ownsChat, await listMappedEvolutionSites().catch(() => []))
             : [];
         const current = sites.find(site => site.current);
         if (current?.siteRoot) return current.siteRoot;
         if (sites.length === 1) return sites[0].siteRoot;
         return '';
-    };
+    });
 
-    const runForTab = async (tabId) => {
+    const runForTab = ignoreChatCancellation(async (tabId) => {
+        const ownsChat = createChatCommitGuard(getActiveChatId(), getActiveChatId);
+
         const input = /** @type {HTMLTextAreaElement|null} */ (agentPanel.querySelector(`#rt-terminal-direct-${tabId}`));
         if (!input) return;
         const msg = String(input.value || '').trim();
@@ -162,7 +168,7 @@ export function wireAgentTerminalDirectPrompts({
             s.directPromptContext = lookback;
             saveSettings();
             toastr['info']('Running State Tracker with specific command...');
-            await sendDirectPrompt(msg);
+            chatCommitResult(ownsChat, await sendDirectPrompt(msg));
             return;
         }
 
@@ -171,7 +177,7 @@ export function wireAgentTerminalDirectPrompts({
             const { chat } = SillyTavern.getContext();
             const combinedNarrative = getNarrativeBlocks(chat, -1, !!s.routerIncludeHidden);
             toastr['info']('Running Lorebook Agent with specific command...');
-            await runRouterPass(combinedNarrative, msg, lookback, true);
+            chatCommitResult(ownsChat, await runRouterPass(combinedNarrative, msg, lookback, true));
             return;
         }
 
@@ -180,11 +186,11 @@ export function wireAgentTerminalDirectPrompts({
             if (typeof updateAgentStatusIndicator === 'function' && typeof isRouterRunning === 'function') {
                 updateAgentStatusIndicator(isRouterRunning());
             }
-            const result = await runMapUpdaterPass({
+            const result = chatCommitResult(ownsChat, await runMapUpdaterPass({
                 isManual: true,
                 lookback,
                 directInstruction: msg,
-            });
+            }));
             if (typeof updateAgentStatusIndicator === 'function' && typeof isRouterRunning === 'function') {
                 updateAgentStatusIndicator(isRouterRunning());
             }
@@ -198,7 +204,7 @@ export function wireAgentTerminalDirectPrompts({
 
         if (tabId === 'map_evolution') {
             const sites = typeof listMappedEvolutionSites === 'function'
-                ? await listMappedEvolutionSites()
+                ? chatCommitResult(ownsChat, await listMappedEvolutionSites())
                 : [];
             if (!sites.length) {
                 toastr.warning('No mapped site to evolve.', 'Map Evolution');
@@ -206,7 +212,7 @@ export function wireAgentTerminalDirectPrompts({
             }
             let siteRoots = sites.filter(site => site.current).map(site => site.siteRoot);
             if (!siteRoots.length) {
-                siteRoots = await promptMappedEvolutionSites(sites, escapeHtml);
+                siteRoots = chatCommitResult(ownsChat, await promptMappedEvolutionSites(sites, escapeHtml));
                 if (!siteRoots) return;
                 if (!siteRoots.length) {
                     toastr.warning('Check at least one mapped site.', 'Map Evolution');
@@ -217,13 +223,13 @@ export function wireAgentTerminalDirectPrompts({
             if (typeof updateAgentStatusIndicator === 'function' && typeof isRouterRunning === 'function') {
                 updateAgentStatusIndicator(isRouterRunning());
             }
-            const result = await runMapEvolutionPass({
+            const result = chatCommitResult(ownsChat, await runMapEvolutionPass({
                 trigger: 'manual',
                 isManual: true,
                 siteRoots,
                 directInstruction: msg,
                 lookback,
-            });
+            }));
             if (typeof updateAgentStatusIndicator === 'function' && typeof isRouterRunning === 'function') {
                 updateAgentStatusIndicator(isRouterRunning());
             }
@@ -237,7 +243,7 @@ export function wireAgentTerminalDirectPrompts({
 
         if (tabId === 'map_architect') {
             const directive = parseMapArchitectCreateDirective(msg);
-            const activeSiteRoot = await resolveCurrentSiteRoot();
+            const activeSiteRoot = chatCommitResult(ownsChat, await resolveCurrentSiteRoot());
             const siteRoot = directive?.site || activeSiteRoot;
             if (!siteRoot) {
                 toastr.warning('Name a site with “Create INTERIOR/DUNGEON/SETTLEMENT map for \"Site Name\"”, or open a mapped location first.', 'Map Architect');
@@ -245,20 +251,22 @@ export function wireAgentTerminalDirectPrompts({
             }
             toastr['info'](`Running Map Architect for ${siteRoot}...`);
             try {
-                const args = await inferMapArchitectArgs({
+                const args = chatCommitResult(ownsChat, await inferMapArchitectArgs({
                     site: siteRoot,
                     userBrief: msg,
                     lookback,
-                });
+                }));
                 if (directive) args.kind = directive.kind;
-                await runMapArchitect(args);
+                chatCommitResult(ownsChat, await runMapArchitect(args));
                 toastr['success'](`Map Architect finished for ${siteRoot}.`, 'Map Architect');
             } catch (error) {
+                if (!ownsChat()) return;
+
                 console.error('[RPG Tracker] Map Architect direct prompt failed:', error);
                 toastr.error(String(error?.message || error), 'Map Architect');
             }
         }
-    };
+    });
 
     AGENT_TERMINAL_TAB_IDS.forEach(tabId => {
         const input = agentPanel.querySelector(`#rt-terminal-direct-${tabId}`);
@@ -277,10 +285,12 @@ export function wireAgentTerminalDirectPrompts({
             };
             grow();
             input.addEventListener('input', () => {
+
                 grow();
                 persistDraft(tabId, /** @type {HTMLTextAreaElement} */ (input).value);
             });
             input.addEventListener('keydown', (/** @type {KeyboardEvent} */ e) => {
+
                 if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
                     void runForTab(tabId);
@@ -289,6 +299,7 @@ export function wireAgentTerminalDirectPrompts({
         }
         if (lookbackInput) {
             lookbackInput.addEventListener('change', () => {
+
                 const value = parseLookback(/** @type {HTMLInputElement} */ (lookbackInput).value, 10);
                 /** @type {HTMLInputElement} */ (lookbackInput).value = String(value);
                 persistLookback(tabId, value);
@@ -296,6 +307,7 @@ export function wireAgentTerminalDirectPrompts({
         }
         if (runBtn) {
             runBtn.addEventListener('click', (e) => {
+
                 e.stopPropagation();
                 void runForTab(tabId);
             });

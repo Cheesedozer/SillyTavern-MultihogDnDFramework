@@ -1,3 +1,4 @@
+import * as chatAffinity from '../src/state/pass-affinity.js';
 import { readFileSync } from 'node:fs';
 import { createContext, runInContext } from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
@@ -12,6 +13,7 @@ function harness() {
     const snapshot = vi.fn().mockResolvedValue({ map: 'A' });
     const questSync = vi.fn(x => x), saveChat = vi.fn();
     const context = createContext({
+        ...chatAffinity,
         ...history, getSettings: () => settings, getActiveChatId: () => chatId,
         canCommitPassForChat, mergeMemo, computeDelta,
         applyQuestSyncAndStripMemo: questSync, captureActiveDungeonMapHistory: snapshot,
