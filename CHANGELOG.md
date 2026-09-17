@@ -2,6 +2,11 @@
 
 All notable changes to the **Multihog D&D Framework** will be documented in this file.
 
+## [2026.8.91] - 2026-09-17
+
+### Fixed
+- Chat Link conflict RESTORE/OVERWRITE archives displaced memos as plain Linear Stone strings (paired with dungeon-map history). Object stones no longer poison the memo panel, delta view, or "restore as LIVE".
+
 ## [2026.8.90] - 2026-09-15
 
 ### Fixed
