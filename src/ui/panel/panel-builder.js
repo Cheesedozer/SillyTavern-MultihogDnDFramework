@@ -1,6 +1,6 @@
 import { runtimeState } from '../../app/runtime-state.js';
 import { getActiveChatId } from '../../state/chat-persistence.js';
-import { canCommitPassForChat, createChatCommitGuard, assertChatCommit, chatCommitResult, ignoreChatCancellation } from '../../state/pass-affinity.js';
+import { canCommitPassForChat, createChatCommitGuard, chatCommitResult, ignoreChatCancellation } from '../../state/pass-affinity.js';
 import { createRouterViewRenderer } from './panel-router-view.js';
 import { wireAgentWorldProgression } from './panel-world-progression.js';
 import { wireAgentMapEvolution } from './panel-map-evolution.js';

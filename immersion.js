@@ -4,7 +4,7 @@ import { normalizeLocationPath, resolveLocationImageWithMeta, triggerBackgroundL
 import { resolvePortraitDisplaySrc, lookupCustomPortraitSrc } from './portrait-storage.js';
 import { resolveCurrentLocationPath, formatLocationBreadcrumb } from './location-resolver.js';
 import { isWorldInfoBookKnown, scanRecentOutputForPresentNpcs } from './router.js';
-import { canCommitPassForChat, createChatCommitGuard, assertChatCommit, chatCommitResult } from './src/state/pass-affinity.js';
+import { canCommitPassForChat, createChatCommitGuard, chatCommitResult } from './src/state/pass-affinity.js';
 import { canUseSceneMemo } from './src/state/scene-affinity.js';
 import { resolveDungeonMapForLocation, resolveDungeonMapFromHistorySnapshot, stripDungeonMapSection } from './dungeon-reality.js';
 import { buildDungeonMapGraph, renderDungeonMapEmbedHtml } from './dungeon-map-graph.js';

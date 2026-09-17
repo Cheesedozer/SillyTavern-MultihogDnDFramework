@@ -1,4 +1,4 @@
-import { createChatCommitGuard, assertChatCommit, chatCommitResult } from './src/state/pass-affinity.js';
+import { createChatCommitGuard, chatCommitResult } from './src/state/pass-affinity.js';
 import { getActiveChatId } from './state-manager.js';
 // ─────────────────────────────────────────────────────────────────────────
 // Game Cartridges — save/load/export/import the entire "configuration

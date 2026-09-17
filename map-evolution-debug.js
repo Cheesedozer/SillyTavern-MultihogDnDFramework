@@ -1,4 +1,4 @@
-import { createChatCommitGuard, assertChatCommit, chatCommitResult } from './src/state/pass-affinity.js';
+import { createChatCommitGuard, chatCommitResult } from './src/state/pass-affinity.js';
 import { getActiveChatId } from './state-manager.js';
 /**
  * Map Evolution testing ground — time, entities, and independent ticks

@@ -15,7 +15,7 @@ function sliceSyncDungeonMaps() {
 describe('Dungeon map capture chat ownership', () => {
     it('pins chat/prefix and skips live history when affinity is lost', () => {
         const fn = sliceSyncDungeonMaps();
-        expect(routerSource).toContain("import { canCommitPassForChat, createChatCommitGuard, assertChatCommit, chatCommitResult } from './src/state/pass-affinity.js'");
+        expect(routerSource).toMatch(/import \{[^}]*\bcreateChatCommitGuard\b[^}]*\} from '\.\/src\/state\/pass-affinity\.js'/);
         expect(fn).toContain('chatId = null');
         expect(fn).toContain('campaignPrefix = null');
         expect(fn).toContain('const passChatId = chatId != null && String(chatId).length > 0');

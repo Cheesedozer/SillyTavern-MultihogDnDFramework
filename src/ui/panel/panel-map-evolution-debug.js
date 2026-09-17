@@ -1,5 +1,5 @@
 import { getActiveChatId } from '../../../state-manager.js';
-import { createChatCommitGuard, assertChatCommit, chatCommitResult, ignoreChatCancellation } from '../../state/pass-affinity.js';
+import { createChatCommitGuard, chatCommitResult, ignoreChatCancellation } from '../../state/pass-affinity.js';
 import { getSettings } from '../../../state-manager.js';
 import {
     MAP_ASSET_KINDS,

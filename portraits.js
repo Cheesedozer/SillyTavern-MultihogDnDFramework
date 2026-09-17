@@ -19,7 +19,7 @@ import {
     portraitWriteMode,
 } from './portrait-storage.js';
 import { buildPortraitStoryContext, portraitStoryLookbackCount } from './src/state/portrait-story-lookback.js';
-import { canCommitPassForChat, createChatCommitGuard, assertChatCommit, chatCommitResult } from './src/state/pass-affinity.js';
+import { canCommitPassForChat, createChatCommitGuard, chatCommitResult } from './src/state/pass-affinity.js';
 
 /**
  * Portrait/location AI generation toast — info/success can be hidden via settings.

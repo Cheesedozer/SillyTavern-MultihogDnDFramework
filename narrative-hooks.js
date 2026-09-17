@@ -21,7 +21,7 @@ import { getActiveMapUpdaterSiteRoot, maybeRollbackMapUpdaterForSwipe, runMapUpd
 import { maybeRollbackMapEvolutionForSwipe, maybeRunMapEvolution, stopMapEvolutionPass } from './map-evolution.js';
 import { formatNarratorSiteActivity } from './map-evolution-lib.js';
 import { shiftMemoAndMapHistory, ensureDungeonMapHistory, sliceMemoAndMapHistory, unshiftMemoAndMapHistory } from './src/state/dungeon-map-history.js';
-import { canCommitPassForChat, createChatCommitGuard, assertChatCommit, chatCommitResult } from './src/state/pass-affinity.js';
+import { canCommitPassForChat, createChatCommitGuard, chatCommitResult } from './src/state/pass-affinity.js';
 import { logTransaction } from './debug-viewer.js';
 import { recordSchedulerEvent } from './swipe-scheduler-debug.js';
 import { saveSettings } from './src/app/runtime-bridge.js';

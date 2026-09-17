@@ -2,6 +2,18 @@
 
 All notable changes to the **Multihog D&D Framework** will be documented in this file.
 
+## [2026.8.92] - 2026-09-18
+
+### Fixed
+- Shared chat ownership guards now cover map agents, lorebook writes and recovery, world generation, portrait follow-ups, narrative scheduling, history navigation, and delayed panel actions. Switching away and back also cancels the old operation.
+- `/la save` retains its originating chat through nested lorebook writes and uses a campaign-scoped Chronicle book. Dungeon-map capture and map transactions stop before updating another chat's history or activation.
+- Full Lorebook Agent audits stop between chunks after a switch. Branch Campaign and Chat Link dialogs cannot apply the departing chat's choices to the arriving chat.
+- Cancelled map operations cannot clear a newer run's controller or notifications. Persistent panel controls capture ownership for each action and continue working after a switch; explicitly chat-scoped image uploads can still finish safely.
+- Chat Link conflict archiving keeps memo/map history paired and preserves the LIVE-history pointer. Known legacy object stones, including those already restored as LIVE, are repaired when settings, chats, or profiles load.
+
+### Development
+- Added deferred-I/O regression coverage for chat switches, round trips, cancellation, failed recovery, and successful ordinary writes. Documented the shared async ownership pattern in `docs/chat-ownership.md`.
+
 ## [2026.8.91] - 2026-09-16
 
 ### Fixed

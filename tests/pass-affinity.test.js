@@ -48,7 +48,7 @@ describe('State Tracker chat-switch affinity', () => {
     });
 
     it('guards State Tracker relationship applies against a post-await chat switch', () => {
-        expect(narrativeSource).toContain("import { canCommitPassForChat, createChatCommitGuard, assertChatCommit, chatCommitResult } from './src/state/pass-affinity.js';");
+        expect(narrativeSource).toMatch(/import \{[^}]*\bcreateChatCommitGuard\b[^}]*\} from '\.\/src\/state\/pass-affinity\.js';/);
         const relIdx = narrativeSource.indexOf('export async function applyStateTrackerRelationshipCommands');
         expect(relIdx).toBeGreaterThanOrEqual(0);
         const relSlice = narrativeSource.slice(relIdx, relIdx + 9000);
@@ -98,7 +98,7 @@ describe('World Progression / Lorebook Agent chat-switch affinity', () => {
     });
 
     it('pins World Progression chat ownership before lorebook/LLM awaits', () => {
-        expect(routerSource).toContain("import { canCommitPassForChat, createChatCommitGuard, assertChatCommit, chatCommitResult } from './src/state/pass-affinity.js'");
+        expect(routerSource).toMatch(/import \{[^}]*\bcreateChatCommitGuard\b[^}]*\} from '\.\/src\/state\/pass-affinity\.js'/);
         expect(routerSource).toContain('export function stopWorldProgressionPass()');
         const wpIdx = routerSource.indexOf('export async function runWorldProgressionPass');
         expect(wpIdx).toBeGreaterThanOrEqual(0);

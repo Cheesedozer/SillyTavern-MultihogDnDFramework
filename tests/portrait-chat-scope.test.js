@@ -137,7 +137,7 @@ describe('per-chat portrait ownership', () => {
             immersionSource.indexOf('export async function runRealtimeSceneArtCheck'),
             immersionSource.indexOf('export function maybeAutoGenerateImmersionSceneArt'),
         );
-        expect(immersionSource).toContain("import { canCommitPassForChat, createChatCommitGuard, assertChatCommit, chatCommitResult } from './src/state/pass-affinity.js'");
+        expect(immersionSource).toMatch(/import \{[^}]*\bcreateChatCommitGuard\b[^}]*\} from '\.\/src\/state\/pass-affinity\.js'/);
         expect(fn).toContain('const passChatId = getActiveChatId()');
         expect(fn).toContain('const memoAtStart = s.currentMemo');
         expect(fn.indexOf('await buildImmersionSceneState')).toBeGreaterThan(fn.indexOf('const passChatId'));
@@ -156,7 +156,7 @@ describe('per-chat portrait ownership', () => {
         const portraitsSource = readFileSync(new URL('../portraits.js', import.meta.url), 'utf8');
         const indexSource = readFileSync(new URL('../index.js', import.meta.url), 'utf8');
 
-        expect(portraitsSource).toContain("import { canCommitPassForChat, createChatCommitGuard, assertChatCommit, chatCommitResult } from './src/state/pass-affinity.js'");
+        expect(portraitsSource).toMatch(/import \{[^}]*\bcreateChatCommitGuard\b[^}]*\} from '\.\/src\/state\/pass-affinity\.js'/);
 
         const forceFn = portraitsSource.slice(
             portraitsSource.indexOf('export async function forceCheckAutoGenerations'),

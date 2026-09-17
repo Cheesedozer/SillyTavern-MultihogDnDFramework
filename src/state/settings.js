@@ -15,6 +15,7 @@ import {
     PORTRAIT_LOCATION_SYSTEM_PROMPT_WITH_NPCS_V1,
 } from './portrait-prompts.js';
 import { bindGetSettings } from './settings-ref.js';
+import { repairChatLinkMemoHistory } from '../features/chat/chat-link-conflict.js';
 import {
     enforceRealtimeVisualizationDisabled,
     setRealtimeVisualizationDisabled,
@@ -84,6 +85,13 @@ function getSettingsInternal(extensionSettings) {
     }
     
     const s = extensionSettings[MODULE_NAME];
+
+    if (s.chatLinkObjectHistoryVersion !== 1) {
+        for (const snapshot of [s, ...Object.values(s.chatStates || {}), ...Object.values(s.profiles || {})]) {
+            repairChatLinkMemoHistory(snapshot);
+        }
+        s.chatLinkObjectHistoryVersion = 1;
+    }
 
     // Custom tracker definitions are framework configuration, not chat state.
     // Older Chat Link snapshots kept a separate customFields list per chat, so a

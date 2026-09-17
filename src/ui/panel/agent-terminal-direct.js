@@ -1,5 +1,5 @@
 import { getActiveChatId } from '../../../state-manager.js';
-import { createChatCommitGuard, assertChatCommit, chatCommitResult, ignoreChatCancellation } from '../../state/pass-affinity.js';
+import { createChatCommitGuard, chatCommitResult, ignoreChatCancellation } from '../../state/pass-affinity.js';
 /** Wire per-tab Terminal/Direct Prompt send bars in the Lorebook Agent panel. */
 
 import { AGENT_TERMINAL_TAB_IDS } from './agent-terminal.js';

@@ -15,7 +15,7 @@ function sliceRunRouterPass() {
 describe('Lorebook Agent chat ownership', () => {
     it('pins passChatId and refuses commits after abort or chat switch', () => {
         const fn = sliceRunRouterPass();
-        expect(routerSource).toContain("import { canCommitPassForChat, createChatCommitGuard, assertChatCommit, chatCommitResult } from './src/state/pass-affinity.js'");
+        expect(routerSource).toMatch(/import \{[^}]*\bcreateChatCommitGuard\b[^}]*\} from '\.\/src\/state\/pass-affinity\.js'/);
         expect(fn).toContain('const passChatId = getActiveChatId()');
         expect(fn).toContain('createChatCommitGuard(passChatId, getActiveChatId, { signal: _routerSignal })');
         expect(fn).toContain('async function commitOwnedAction(action)');

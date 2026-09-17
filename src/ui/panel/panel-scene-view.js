@@ -42,9 +42,9 @@ export function createSceneViewController({
         const mapHandlers = () => {
             const ownsView = createChatCommitGuard(getActiveChatId(), getActiveChatId);
             return {
-            onAreaClick: (path) => { if (ownsView()) return openMappedLocation(path); },
-            onDetach: () => { void runtimeState.refreshImmersionView(); },
-            onReattach: () => { void runtimeState.refreshImmersionView(); },
+                onAreaClick: (path) => { if (ownsView()) return openMappedLocation(path); },
+                onDetach: () => { void runtimeState.refreshImmersionView(); },
+                onReattach: () => { void runtimeState.refreshImmersionView(); },
             };
         };
 

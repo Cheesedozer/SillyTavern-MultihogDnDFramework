@@ -58,7 +58,7 @@ import {
     sliceMemoAndMapHistory,
     unshiftMemoAndMapHistory,
 } from './src/state/dungeon-map-history.js';
-import { canCommitPassForChat, createChatCommitGuard, invalidateChatCommitGuards, assertChatCommit, chatCommitResult, ignoreChatCancellation } from './src/state/pass-affinity.js';
+import { canCommitPassForChat, createChatCommitGuard, invalidateChatCommitGuards, chatCommitResult, ignoreChatCancellation } from './src/state/pass-affinity.js';
 import { createPanel as buildPanel } from './src/ui/panel/panel-builder.js';
 import { broadcastStateTrackerStep } from './src/ui/panel/agent-terminal.js';
 import { createChatStateLoader } from './src/features/chat/chat-state-loader.js';
@@ -66,7 +66,7 @@ import { stripDungeonMapSection } from './dungeon-reality.js';
 import { cloneCampaignStackToPrefix } from './src/features/chat/clone-campaign-stack.js';
 import { branchCampaignChat, isBranchSeedInProgress } from './src/features/chat/branch-campaign.js';
 import { onChatRenamedMigrate } from './src/features/chat/chat-rename-migrate.js';
-import { archiveDisplacedChatLinkMemo } from './src/features/chat/chat-link-conflict.js';
+import { archiveDisplacedChatLinkMemo, repairChatLinkMemoHistory } from './src/features/chat/chat-link-conflict.js';
 import {
     COMPANION_BY_CHAT_KEY,
     MEMO_RECOVERY_KEY,
@@ -2792,7 +2792,7 @@ async function applyChatLinkToggle(turningOn) {
                     </p>
                 </div>`;
 
-            const choice = chatCommitResult(ownsChat, await Popup.show.confirm('⚠️ Chat Link Conflict', body, {
+            const choice = await Popup.show.confirm('⚠️ Chat Link Conflict', body, {
                 okButton: 'RESTORE',
                 cancelButton: 'OVERWRITE',
                 customButtons: [
@@ -2802,7 +2802,8 @@ async function applyChatLinkToggle(turningOn) {
                         appendAtEnd: true,
                     },
                 ],
-            }));
+            });
+            if (!ownsChat()) return false;
 
             if (choice === POPUP_RESULT.AFFIRMATIVE) {
                 // memoHistory is string[]; object stones poison the panel / delta /
@@ -3549,6 +3550,7 @@ function loadProfile(name) {
     const s = getSettings();
     const p = s.profiles?.[name];
     if (!p) return;
+    repairChatLinkMemoHistory(p);
     s.currentMemo = p.currentMemo ?? '';
     s.memoHistory = p.memoHistory ?? [];
     s.dungeonMapHistory = p.dungeonMapHistory ?? [];

@@ -8,6 +8,23 @@ const sources = Object.fromEntries(['router', 'map-updater', 'map-evolution', 'm
     .map(name => [name, readFileSync(new URL(`../${name}.js`, import.meta.url), 'utf8')]));
 sources.terminal = readFileSync(new URL('../src/ui/panel/agent-terminal-direct.js', import.meta.url), 'utf8');
 sources.branch = readFileSync(new URL('../src/features/chat/branch-campaign.js', import.meta.url), 'utf8');
+sources.index = readFileSync(new URL('../index.js', import.meta.url), 'utf8');
+const indexAst = parseAst(sources.index);
+function installClick(context, selector) {
+    let handler;
+    function visit(node) {
+        if (!node || typeof node !== 'object') return;
+        if (node.type === 'CallExpression' && node.callee.property?.name === 'on'
+            && node.callee.object?.arguments?.[0]?.value === selector) handler = node.arguments.at(-1);
+        for (const value of Object.values(node)) {
+            if (Array.isArray(value)) value.forEach(visit);
+            else if (value && typeof value === 'object') visit(value);
+        }
+    }
+    visit(indexAst);
+    if (!handler) throw new Error(`Missing click handler ${selector}`);
+    runInContext(`globalThis.runClick = ${sources.index.slice(handler.start, handler.end)};`, context);
+}
 function install(context, file, ...names) {
     for (const name of names) {
         const source = sources[file];
@@ -360,6 +377,39 @@ describe('manual world generation and recovery', () => {
 });
 
 describe('persistent controls', () => {
+    it.each(['confirm', 'busy', 'pass'])('stops the full audit queue after switching during %s', async phase => {
+        const h = harness(phase);
+        h.ctx.chat = [{ mes: 'A'.repeat(4500) }, { mes: 'B'.repeat(4500) }];
+        h.ctx.contextSize = 4000;
+        h.ctx.Popup = { show: { confirm: () => h.wait('confirm', true) } };
+        Object.assign(h.context, {
+            settings: h.settings, $: () => ({ prop() {} }), LOREBOOK_FULL_AUDIT_INSTRUCTION: 'audit',
+            isRouterRunning: () => phase === 'busy',
+            runRouterPass: vi.fn(() => h.wait('pass', true)),
+            setTimeout: fn => { void h.wait('busy').then(fn); },
+        });
+        installClick(h.context, '#rt-agent-router-full-audit, #rt-agent-router-full-audit-panel');
+        const pending = h.context.runClick();
+        await h.entered.promise;
+        h.switchChat(true); h.gate.resolve(); await pending;
+        expect(h.context.runRouterPass).toHaveBeenCalledTimes(phase === 'pass' ? 1 : 0);
+    });
+
+    it('does not attach a late map-history snapshot to the arriving chat', async () => {
+        const h = harness('snapshot');
+        const runtime = { historyViewIndex: 1, liveDungeonMapBackup: null, dungeonMapHistoryOverlay: null };
+        Object.assign(h.context, {
+            runtimeState: runtime, captureActiveDungeonMapHistory: () => h.wait('snapshot', { bookName: 'A_Locations' }),
+            getDungeonMapHistoryEntry: vi.fn(), restoreActiveDungeonMapHistory: vi.fn(),
+        });
+        install(h.context, 'index', 'applyDungeonMapForHistoryView');
+        const pending = h.context.applyDungeonMapForHistoryView();
+        await h.entered.promise;
+        h.switchChat(); h.gate.resolve(); await pending;
+        expect(runtime.liveDungeonMapBackup).toBeNull();
+        expect(h.context.restoreActiveDungeonMapHistory).not.toHaveBeenCalled();
+    });
+
     it('can run a new chat operation after switching without rewiring the panel', async () => {
         const h = harness(), done = deferred();
         const listeners = {};

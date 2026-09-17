@@ -1,5 +1,5 @@
 import { getActiveChatId } from '../../../state-manager.js';
-import { createChatCommitGuard, assertChatCommit, chatCommitResult, ignoreChatCancellation } from '../../state/pass-affinity.js';
+import { createChatCommitGuard, chatCommitResult, ignoreChatCancellation } from '../../state/pass-affinity.js';
 import { getSettings, saveChatState } from '../../../state-manager.js';
 import { runtimeState } from '../../app/runtime-state.js';
 import { saveSettings } from '../../app/runtime-bridge.js';
