@@ -46,6 +46,52 @@ describe('auto-generation lorebook affinity', () => {
         expect(known.size).toBe(0);
         expect(context.isFirstCheck).toBe(true);
     });
+
+    it('loads the NPC lorebook for the pinned chat when ctx.chatId is stale', async () => {
+        let tracked = 'B';
+        const ctxChatId = 'A';
+        const loadWorldInfo = vi.fn(async (bookName) => {
+            expect(bookName).toBe('CampaignB_NPCs');
+            return { entries: { 0: { comment: 'Bob', content: 'from B' } } };
+        });
+        const trigger = vi.fn();
+        const prefixFor = vi.fn((id) => (id === 'B' ? 'CampaignB' : 'CampaignA'));
+        const context = createContext({
+            ...chatAffinity,
+            console: { log() {}, error() {} },
+            getActiveChatId: () => tracked,
+            canCommitPassForChat,
+            getSettings: () => ({
+                enablePortraits: true,
+                portraitAutoGenerateNpcs: true,
+                npcPortraits: true,
+                portraitAutoGenerateParty: false,
+                portraitAutoGenerateEnemies: false,
+                portraitAutoGenerateLocations: false,
+            }),
+            SillyTavern: { getContext: () => ({ chatId: ctxChatId, loadWorldInfo }) },
+            getEffectiveRouterCampaignPrefix: prefixFor,
+            getPartyMembers: () => [],
+            getEnemyEntities: () => [],
+            reconcileMemoPortraitRenames() {},
+            triggerPlayerPortraitAutoGenIfNeeded() {},
+            seedPlayerCharacterKnownEntities() {},
+            getPrimaryCharacterBlockName: () => '',
+            knownEntities: new Set(),
+            isFirstCheck: false,
+            hasPortrait: () => false,
+            loadLocationLorebookEntries: async () => [],
+            checkAndTriggerLocationAutoGenerations: async () => {},
+            triggerBackgroundPortraitGeneration: trigger,
+            triggerBackgroundLocationGeneration: vi.fn(),
+        });
+        const run = install(context, 'checkAndTriggerAutoGenerations');
+        await run(() => {});
+        expect(prefixFor).toHaveBeenCalledWith('B');
+        expect(prefixFor).not.toHaveBeenCalledWith('A');
+        expect(loadWorldInfo).toHaveBeenCalledWith('CampaignB_NPCs');
+        expect(trigger).toHaveBeenCalledWith('Bob', expect.any(Function), 'from B', { chatId: 'B' });
+    });
 });
 
 describe.each(['portrait', 'location'])('%s queue affinity', kind => {

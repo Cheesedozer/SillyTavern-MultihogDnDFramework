@@ -167,8 +167,11 @@ describe('per-chat portrait ownership', () => {
         expect(forceLoadAt).toBeGreaterThan(forceFn.indexOf('const passChatId'));
         expect(forceFn.indexOf('canCommitPassForChat(passChatId, getActiveChatId())', forceLoadAt))
             .toBeGreaterThan(forceLoadAt);
+        expect(forceFn).toContain('getEffectiveRouterCampaignPrefix(passChatId)');
+        expect(forceFn).not.toContain('getEffectiveRouterCampaignPrefix(ctx.chatId)');
         expect(forceFn).toContain('triggerBackgroundPortraitGeneration(name, refresh, entry.content || \'\', pinnedOpts)');
         expect(forceFn).toContain('triggerBackgroundLocationGeneration(path, refresh, entry.content, pinnedOpts)');
+        expect(forceFn).toContain('await loadLocationLorebookEntries(passChatId)');
 
         const checkFn = portraitsSource.slice(
             portraitsSource.indexOf('export async function checkAndTriggerAutoGenerations'),
@@ -180,15 +183,25 @@ describe('per-chat portrait ownership', () => {
         expect(checkFn.indexOf('canCommitPassForChat(passChatId, getActiveChatId())', checkLoadAt))
             .toBeGreaterThan(checkLoadAt);
         expect(checkFn).toContain('chatId: passChatId');
+        expect(checkFn).toContain('getEffectiveRouterCampaignPrefix(passChatId)');
+        expect(checkFn).not.toContain('getEffectiveRouterCampaignPrefix(ctx.chatId)');
 
         const locFn = portraitsSource.slice(
             portraitsSource.indexOf('export async function checkAndTriggerLocationAutoGenerations'),
             portraitsSource.indexOf('export async function checkAndTriggerLocationAutoGenerations') + 1200,
         );
-        const locLoadAt = locFn.indexOf('await loadLocationLorebookEntries()');
+        const locLoadAt = locFn.indexOf('await loadLocationLorebookEntries(passChatId)');
         expect(locLoadAt).toBeGreaterThan(locFn.indexOf('passChatId'));
         expect(locFn.indexOf('canCommitPassForChat(passChatId, getActiveChatId())', locLoadAt))
             .toBeGreaterThan(locLoadAt);
+
+        const mapFn = portraitsSource.slice(
+            portraitsSource.indexOf('async function loadLocationLorebookMap'),
+            portraitsSource.indexOf('async function loadLocationLorebookMap') + 900,
+        );
+        expect(mapFn).toContain('getEffectiveRouterCampaignPrefix(id)');
+        expect(mapFn).not.toContain('getEffectiveRouterCampaignPrefix(ctx.chatId)');
+        expect(mapFn).not.toContain('if (!ctx.chatId)');
 
         const portraitTrigger = portraitsSource.slice(
             portraitsSource.indexOf('export function triggerBackgroundPortraitGeneration'),
