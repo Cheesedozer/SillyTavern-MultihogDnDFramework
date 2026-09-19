@@ -69,4 +69,26 @@ describe('dungeon map history snapshots', () => {
         expect(settings.dungeonMapHistory[0]).toEqual({ maps: [{ uid: '0' }] });
         expect(settings.dungeonMapHistory[1]).toBeNull();
     });
+
+    it('updates the LIVE map slot when historyIndex is not 0', () => {
+        const settings = {
+            memoHistory: ['displaced', 'live'],
+            dungeonMapHistory: [null, { bookName: 'Camp_Locations', maps: [{ uid: '0', map: 'old' }] }],
+            historyIndex: 1,
+        };
+        const next = { bookName: 'Camp_Locations', maps: [{ uid: '0', map: 'explored' }] };
+        recordLiveDungeonMapSnapshot(settings, next);
+        expect(settings.dungeonMapHistory[0]).toBeNull();
+        expect(settings.dungeonMapHistory[1]).toEqual(next);
+    });
+
+    it('does not invent a LIVE map slot when historyIndex is outside history', () => {
+        const settings = {
+            memoHistory: ['older'],
+            dungeonMapHistory: [{ bookName: 'Camp_Locations', maps: [{ uid: '0', map: 'older' }] }],
+            historyIndex: -1,
+        };
+        recordLiveDungeonMapSnapshot(settings, { bookName: 'Camp_Locations', maps: [{ uid: '0', map: 'live' }] });
+        expect(settings.dungeonMapHistory).toEqual([{ bookName: 'Camp_Locations', maps: [{ uid: '0', map: 'older' }] }]);
+    });
 });

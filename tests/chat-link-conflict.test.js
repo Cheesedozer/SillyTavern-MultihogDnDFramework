@@ -21,6 +21,22 @@ describe('archiveDisplacedChatLinkMemo', () => {
         expect(target.memoHistory[target.historyIndex]).toBe(target.currentMemo);
     });
 
+    it('keeps later LIVE map captures on the moved LIVE slot after conflict archive', async () => {
+        const { recordLiveDungeonMapSnapshot } = await import('../src/state/dungeon-map-history.js');
+        const target = {
+            currentMemo: 'live',
+            memoHistory: ['live'],
+            dungeonMapHistory: [{ bookName: 'Camp_Locations', maps: [{ uid: '0', map: 'before' }] }],
+            historyIndex: 0,
+        };
+        archiveDisplacedChatLinkMemo(target, 'displaced');
+        expect(target.historyIndex).toBe(1);
+        const explored = { bookName: 'Camp_Locations', maps: [{ uid: '0', map: 'after explore' }] };
+        recordLiveDungeonMapSnapshot(target, explored);
+        expect(target.dungeonMapHistory[0]).toBeNull();
+        expect(target.dungeonMapHistory[1]).toEqual(explored);
+    });
+
     it('keeps LIVE outside history when its slot is trimmed', () => {
         const target = { currentMemo: 'live', memoHistory: ['newer', 'live'], historyIndex: 1 };
         archiveDisplacedChatLinkMemo(target, 'displaced', { max: 2 });
