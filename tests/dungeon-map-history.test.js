@@ -82,11 +82,11 @@ describe('dungeon map history snapshots', () => {
         expect(settings.dungeonMapHistory[1]).toEqual(next);
     });
 
-    it('does not invent a LIVE map slot when historyIndex is outside history', () => {
+    it.each([-1, 1, 8, 0.5, '0', undefined, null])('does not invent a LIVE map slot for invalid historyIndex %s', historyIndex => {
         const settings = {
             memoHistory: ['older'],
             dungeonMapHistory: [{ bookName: 'Camp_Locations', maps: [{ uid: '0', map: 'older' }] }],
-            historyIndex: -1,
+            historyIndex,
         };
         recordLiveDungeonMapSnapshot(settings, { bookName: 'Camp_Locations', maps: [{ uid: '0', map: 'live' }] });
         expect(settings.dungeonMapHistory).toEqual([{ bookName: 'Camp_Locations', maps: [{ uid: '0', map: 'older' }] }]);

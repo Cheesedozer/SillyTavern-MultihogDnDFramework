@@ -2173,9 +2173,6 @@ export function scaleImageToLandscape(dataUrl) {
 }
 
 /**
- * @returns {Promise<Map<string, { content: string }>>}
- */
-/**
  * @param {string|null|undefined} [chatId] Originating chat — never re-read live ctx.chatId.
  * @returns {Promise<Map<string, { content: string }>>}
  */
@@ -2235,8 +2232,7 @@ function formatRecentNarratorOutputs(ctx, count = 2) {
  */
 export function getLinkedPlayerCharacter(settings, ctx) {
     const s = settings || getSettings();
-    const c = ctx || SillyTavern.getContext();
-    const chatId = c.chatId || (typeof globalThis._rpgCurrentChatId === 'function' ? globalThis._rpgCurrentChatId() : null);
+    const chatId = getActiveChatId();
     if (!chatId || !s.chatStates?.[chatId]?.playerCharacter) return null;
     const pc = s.chatStates[chatId].playerCharacter;
     const name = String(pc.name || '').trim();

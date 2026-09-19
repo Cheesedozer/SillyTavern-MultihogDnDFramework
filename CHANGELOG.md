@@ -2,6 +2,12 @@
 
 All notable changes to the **Multihog D&D Framework** will be documented in this file.
 
+## [2026.8.93] - 2026-09-19
+
+### Fixed
+- Automatic portrait and location generation select lorebooks using the tracked chat when SillyTavern's chat ID is stale. Scene prompts also use the tracked campaign's linked player character, present NPCs, and legacy campaign-prefix override.
+- Dungeon-map snapshots update the actual LIVE history slot, including after Chat Link conflict archiving or restoring an older stone as LIVE, without overwriting another stone's map.
+
 ## [2026.8.92] - 2026-09-18
 
 ### Fixed

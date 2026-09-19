@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-const routerSource = readFileSync(new URL('../router.js', import.meta.url), 'utf8');
+const routerSource = readFileSync(new URL('../router.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 const indexSource = readFileSync(new URL('../index.js', import.meta.url), 'utf8');
 
 function sliceRunRouterPass() {

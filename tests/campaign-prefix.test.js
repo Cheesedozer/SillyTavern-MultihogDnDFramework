@@ -49,6 +49,21 @@ describe('getEffectiveRouterCampaignPrefix', () => {
         expect(getEffectiveRouterCampaignPrefix('Other Chat')).toBe('Other_Chat');
     });
 
+    it('uses the tracked chat for legacy overrides while the host context is stale', () => {
+        const previousTracker = globalThis._rpgCurrentChatId;
+        globalThis._rpgCurrentChatId = () => 'Tracked Chat';
+        try {
+            const s = getSettings();
+            s.routerCampaignPrefixOverride = 'Tracked_Campaign';
+            s.routerCampaignPrefixOverrideAnchorChatId = '';
+            expect(getEffectiveRouterCampaignPrefix('Tracked Chat')).toBe('Tracked_Campaign');
+            expect(getEffectiveRouterCampaignPrefix('Active Chat')).toBe('Active_Chat');
+        } finally {
+            if (previousTracker === undefined) delete globalThis._rpgCurrentChatId;
+            else globalThis._rpgCurrentChatId = previousTracker;
+        }
+    });
+
     it('lets an explicitly anchored manual override supersede a rename pin', () => {
         const s = getSettings();
         s.chatStates = { 'Renamed Chat': { renamedCampaignPrefix: 'Original_Campaign' } };

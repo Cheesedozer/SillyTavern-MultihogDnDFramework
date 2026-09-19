@@ -107,8 +107,7 @@ export function stopWorldProgressionPass() {
  * Returns '' only if there is no usable prefix.
  */
 function getLivePrefix() {
-    const ctx = SillyTavern.getContext();
-    return getEffectiveRouterCampaignPrefix(ctx.chatId || '');
+    return getEffectiveRouterCampaignPrefix(getActiveChatId() || '');
 }
 
 function isSkeletonEntryId(entryId) {

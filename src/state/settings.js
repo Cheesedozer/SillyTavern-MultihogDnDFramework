@@ -1453,7 +1453,8 @@ export function getEffectiveRouterCampaignPrefix(chatId) {
     // Legacy unanchored override: only while evaluating the active chat.
     try {
         const ctx = SillyTavern.getContext();
-        const activeId = String(ctx?.getCurrentChatId?.() || ctx?.chatId || '');
+        const trackedId = typeof globalThis._rpgCurrentChatId === 'function' ? globalThis._rpgCurrentChatId() : null;
+        const activeId = String(trackedId || ctx?.getCurrentChatId?.() || ctx?.chatId || '');
         if (id && activeId && id !== activeId) {
             return fallback;
         }
