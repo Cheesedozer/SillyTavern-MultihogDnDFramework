@@ -53,7 +53,11 @@ export function getDungeonMapHistoryEntry(settings, index) {
 export function recordLiveDungeonMapSnapshot(settings, mapSnapshot) {
     if (!settings || mapSnapshot == null) return;
     ensureDungeonMapHistory(settings);
-    if (settings.historyIndex === 0 && settings.dungeonMapHistory.length) {
-        settings.dungeonMapHistory[0] = mapSnapshot;
+    // LIVE is not always at index 0 — Chat Link conflict archiving (and other
+    // unshifts) bump historyIndex so the LIVE pointer follows its memo. Writing
+    // only slot 0 left the real LIVE map stale after exploration.
+    const liveIndex = Number.isInteger(settings.historyIndex) ? settings.historyIndex : -1;
+    if (liveIndex >= 0 && liveIndex < settings.dungeonMapHistory.length) {
+        settings.dungeonMapHistory[liveIndex] = mapSnapshot;
     }
 }
