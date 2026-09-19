@@ -1836,9 +1836,12 @@ export async function forceCheckAutoGenerations(refresh) {
 
     if (s.portraitAutoGenerateNpcs && s.npcPortraits !== false) {
         const ctx = SillyTavern.getContext();
-        console.log('[RPG Tracker] forceCheckAutoGenerations: checking NPCs. chatId:', ctx.chatId);
-        if (ctx.chatId) {
-            const prefix = getEffectiveRouterCampaignPrefix(ctx.chatId);
+        // Prefer the pinned pass id — ctx.chatId can lag behind runtimeState during
+        // CHAT_CHANGED / MESSAGE_SWIPED, which would load another campaign's NPCs
+        // and enqueue them into this chat's portrait store.
+        console.log('[RPG Tracker] forceCheckAutoGenerations: checking NPCs. chatId:', passChatId, 'ctx.chatId:', ctx.chatId);
+        if (passChatId) {
+            const prefix = getEffectiveRouterCampaignPrefix(passChatId);
             const bookName = prefix ? `${prefix}_NPCs` : 'NPCs';
             console.log('[RPG Tracker] forceCheckAutoGenerations: bookName:', bookName);
             try {
@@ -1873,7 +1876,7 @@ export async function forceCheckAutoGenerations(refresh) {
 
     if (!canCommitPassForChat(passChatId, getActiveChatId())) return;
     if (s.portraitAutoGenerateLocations && !s.portraitAutoGenerateSceneView && s.locationImages) {
-        const locEntries = chatCommitResult(ownsOperation, await loadLocationLorebookEntries());
+        const locEntries = chatCommitResult(ownsOperation, await loadLocationLorebookEntries(passChatId));
         if (!canCommitPassForChat(passChatId, getActiveChatId())) return;
         for (const entry of locEntries) {
             const path = normalizeLocationPath(entry.label);
@@ -1912,9 +1915,12 @@ export async function checkAndTriggerAutoGenerations(refresh) {
     console.log('[RPG Tracker] checkAndTriggerAutoGenerations: portraitAutoGenerateNpcs settings:', s.portraitAutoGenerateNpcs);
     if (s.portraitAutoGenerateNpcs && s.npcPortraits !== false) {
         const ctx = SillyTavern.getContext();
-        console.log('[RPG Tracker] checkAndTriggerAutoGenerations: ctx.chatId:', ctx.chatId);
-        if (ctx.chatId) {
-            const prefix = getEffectiveRouterCampaignPrefix(ctx.chatId);
+        // Prefer the pinned pass id — ctx.chatId can lag behind runtimeState during
+        // CHAT_CHANGED / MESSAGE_SWIPED, which would load another campaign's NPCs
+        // and enqueue them into this chat's portrait store.
+        console.log('[RPG Tracker] checkAndTriggerAutoGenerations: chatId:', passChatId, 'ctx.chatId:', ctx.chatId);
+        if (passChatId) {
+            const prefix = getEffectiveRouterCampaignPrefix(passChatId);
             const bookName = prefix ? `${prefix}_NPCs` : 'NPCs';
             console.log('[RPG Tracker] checkAndTriggerAutoGenerations: resolving bookName:', bookName);
             try {
@@ -2169,12 +2175,17 @@ export function scaleImageToLandscape(dataUrl) {
 /**
  * @returns {Promise<Map<string, { content: string }>>}
  */
-async function loadLocationLorebookMap() {
+/**
+ * @param {string|null|undefined} [chatId] Originating chat — never re-read live ctx.chatId.
+ * @returns {Promise<Map<string, { content: string }>>}
+ */
+async function loadLocationLorebookMap(chatId = getActiveChatId()) {
     const ctx = SillyTavern.getContext();
     const map = new Map();
-    if (!ctx.chatId) return map;
+    const id = chatId != null && String(chatId).length > 0 ? String(chatId) : null;
+    if (!id) return map;
 
-    const prefix = getEffectiveRouterCampaignPrefix(ctx.chatId);
+    const prefix = getEffectiveRouterCampaignPrefix(id);
     const bookName = prefix ? `${prefix}_Locations` : 'Locations';
     try {
         if (typeof ctx.updateWorldInfoList === 'function') {
@@ -2294,7 +2305,8 @@ async function loadPresentCharactersForLocationPrompt(settings, ctx) {
  * @returns {Promise<string>}
  */
 export async function generateLocationImagePrompt(locationPath, locContent) {
-    const ownsOperation = createChatCommitGuard(getActiveChatId(), getActiveChatId);
+    const passChatId = getActiveChatId();
+    const ownsOperation = createChatCommitGuard(passChatId, getActiveChatId);
     const s = getSettings();
     const ctx = SillyTavern.getContext();
     const normPath = normalizeLocationPath(locationPath);
@@ -2304,7 +2316,7 @@ export async function generateLocationImagePrompt(locationPath, locContent) {
         contextParts.push(`Location Lorebook Entry (PRIMARY — depict this specific place):\n${locContent.trim()}`);
     }
 
-    const loreMap = chatCommitResult(ownsOperation, await loadLocationLorebookMap());
+    const loreMap = chatCommitResult(ownsOperation, await loadLocationLorebookMap(passChatId));
     const ancestors = getAncestorLocationPaths(normPath);
     if (ancestors.length > 0) {
         const parentBlocks = [];
@@ -2527,14 +2539,15 @@ export function triggerBackgroundLocationGeneration(locationPath, refresh, locCo
 
 /**
  * Load location lorebook entries for auto-generation.
+ * @param {string|null|undefined} [chatId] Originating chat for campaign prefix.
  * @returns {Promise<Array<{label: string, content: string}>>}
  */
-async function loadLocationLorebookEntries() {
+async function loadLocationLorebookEntries(chatId = getActiveChatId()) {
     const s = getSettings();
     // Real-Time Mode owns location art; skip Lorebook Agent batch generation.
     if (!s.portraitAutoGenerateLocations || s.portraitAutoGenerateSceneView || !s.locationImages) return [];
 
-    const map = await loadLocationLorebookMap();
+    const map = await loadLocationLorebookMap(chatId);
     return [...map.entries()].map(([label, { content }]) => ({ label, content }));
 }
 
@@ -2553,7 +2566,7 @@ export async function checkAndTriggerLocationAutoGenerations(refresh, opts = {})
     const passChatId = opts.chatId != null && String(opts.chatId).length > 0
         ? String(opts.chatId)
         : getActiveChatId();
-    const locEntries = chatCommitResult(ownsOperation, await loadLocationLorebookEntries());
+    const locEntries = chatCommitResult(ownsOperation, await loadLocationLorebookEntries(passChatId));
     if (!canCommitPassForChat(passChatId, getActiveChatId())) return;
     if (opts.isFirstCheck) {
         for (const entry of locEntries) {
