@@ -3441,7 +3441,7 @@ export async function sendDirectPrompt(message, options = {}) {
             chatLog +
             `## PRIOR MEMO\n${sanitizedCurrentForPrompt || '(empty — this is the initial setup)'}\n\n` +
             `## USER INSTRUCTION\n${message}\n\n` +
-            `## OUTPUT ONLY CHANGED OR NEW SECTIONS:`;
+            settings.userPromptSuffix;
 
         broadcastStateTrackerStep('thought', 'Requesting memo update from State Tracker...');
         const result = chatCommitResult(ownsOperation, await sendStateRequest(options.connectionSettings || settings, systemPrompt, userPrompt, signal, { stream: true, debugSource: 'Tracker' }));
