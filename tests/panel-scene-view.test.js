@@ -140,6 +140,8 @@ describe('Scene View controller', () => {
         expect(fn.indexOf('maybeAutoGenerateImmersionSceneArt')).toBeGreaterThan(
             fn.indexOf('!ownsChat()'),
         );
+        expect(fn).toContain('await buildImmersionSceneState(memoAtStart, s, { chatId: passChatId })');
+        expect(fn).toContain('{ chatId: passChatId }');
     });
 
     it('restores a map graph viewport after the refresh replaces its scroll container', () => {
