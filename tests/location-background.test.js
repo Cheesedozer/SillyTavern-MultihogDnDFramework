@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const host = vi.hoisted(() => ({ settings: {}, context: {}, images: {} }));
 vi.mock('../state-manager.js', () => ({
     getSettings: () => host.settings,
-    getEffectiveRouterCampaignPrefix: () => '',
+    getActiveChatId: () => host.trackedChatId ?? host.context?.chatId ?? null,
+    getEffectiveRouterCampaignPrefix: (chatId) => host.prefixFor?.(chatId) ?? '',
+    saveChatState() {},
 }));
 vi.mock('../memo-processor.js', () => ({}));
 vi.mock('../portraits.js', () => ({
@@ -18,7 +20,11 @@ vi.mock('../router.js', () => ({
     isWorldInfoBookKnown: vi.fn(),
     scanRecentOutputForPresentNpcs: vi.fn(),
 }));
-vi.mock('../dungeon-reality.js', () => ({}));
+vi.mock('../dungeon-reality.js', () => ({
+    stripDungeonMapSection: (content) => content || '',
+    resolveDungeonMapForLocation: () => null,
+    resolveDungeonMapFromHistorySnapshot: () => null,
+}));
 vi.mock('../dungeon-map-graph.js', () => ({}));
 vi.mock('../src/ui/panel/dungeon-map-panel.js', () => ({}));
 vi.mock('../src/state/section-enabled.js', () => ({ isLocationMappingEnabled: () => false }));
@@ -61,6 +67,8 @@ describe('location background syncing', () => {
         vi.resetAllMocks();
         host.settings = { locationImages: true, portraitAutoApplyLocationBackground: true };
         host.images = { A: 'A.png', B: 'B.png' };
+        host.trackedChatId = undefined;
+        host.prefixFor = undefined;
         setLocation('A');
         vi.spyOn(SillyTavern, 'getContext').mockImplementation(() => host.context);
         isWorldInfoBookKnown.mockResolvedValue(false);
@@ -120,5 +128,31 @@ describe('location background syncing', () => {
         lookup.resolve(false);
         await oldScene;
         expect(applyLocationImageToChatBackground).not.toHaveBeenCalled();
+    });
+
+    it('loads the Locations book for the tracked chat when ctx.chatId is stale', async () => {
+        host.trackedChatId = 'B';
+        host.settings.currentMemo = 'memo';
+        host.context = {
+            chatId: 'A',
+            chat: [{ mes: '(Location: Market)' }],
+            loadWorldInfo: vi.fn(async (bookName) => {
+                expect(bookName).toBe('CampaignB_Locations');
+                return {
+                    entries: {
+                        0: { comment: 'Market', content: 'from campaign B' },
+                    },
+                };
+            }),
+        };
+        host.prefixFor = vi.fn((id) => (id === 'B' ? 'CampaignB' : 'CampaignA'));
+        isWorldInfoBookKnown.mockImplementation(async (bookName) => bookName === 'CampaignB_Locations');
+        host.images = { Market: 'B-market.png' };
+
+        await buildImmersionSceneState('memo', host.settings, { chatId: 'B' });
+
+        expect(host.prefixFor).toHaveBeenCalledWith('B');
+        expect(host.context.loadWorldInfo).toHaveBeenCalledWith('CampaignB_Locations');
+        expect(applyLocationImageToChatBackground).toHaveBeenCalledExactlyOnceWith('B-market.png');
     });
 });

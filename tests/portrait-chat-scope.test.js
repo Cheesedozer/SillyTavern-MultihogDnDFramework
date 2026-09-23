@@ -150,6 +150,17 @@ describe('per-chat portrait ownership', () => {
         expect(fn.indexOf('maybeAutoGenerateImmersionSceneArt')).toBeGreaterThan(
             fn.indexOf('canCommitPassForChat(passChatId, getActiveChatId())'),
         );
+        expect(fn).toContain('await buildImmersionSceneState(memoAtStart, s, { chatId: passChatId })');
+        expect(fn).toContain('maybeAutoGenerateImmersionSceneArt(scene,');
+        expect(fn).toContain('{ chatId: passChatId }');
+        expect(immersionSource).toContain('getEffectiveRouterCampaignPrefix(backgroundChatId');
+        expect(immersionSource).not.toContain('getEffectiveRouterCampaignPrefix(ctx.chatId)');
+        expect(immersionSource).toContain('chatId: passChatId');
+        const genFn = immersionSource.slice(
+            immersionSource.indexOf('export function maybeAutoGenerateImmersionSceneArt'),
+            immersionSource.indexOf('export function maybeAutoGenerateImmersionSceneArt') + 2200,
+        );
+        expect(genFn).toContain('chatId: passChatId');
     });
 
     it('pins auto-gen kickoffs before lorebook awaits and aborts when affinity is lost', () => {

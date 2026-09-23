@@ -165,11 +165,11 @@ export function createSceneViewController({
             const memoAtStart = s.currentMemo;
             if (!canUseSceneMemo(s, passChatId, memoAtStart)) return;
             try {
-                const scene = await buildImmersionSceneState(memoAtStart, s);
+                const scene = await buildImmersionSceneState(memoAtStart, s, { chatId: passChatId });
                 if (!ownsChat()) return;
                 if (!canUseSceneMemo(getSettings(), passChatId, memoAtStart)) return;
                 runtimeState.hasActiveDungeonMap = !!scene.dungeonMap;
-                maybeAutoGenerateImmersionSceneArt(scene, () => { void runtimeState.refreshImmersionView(); });
+                maybeAutoGenerateImmersionSceneArt(scene, () => { void runtimeState.refreshImmersionView(); }, { chatId: passChatId });
                 syncAgentImmersionUi();
                 if (isDungeonMapDetached()) {
                     if (scene.dungeonMap) {
