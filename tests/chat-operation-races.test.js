@@ -3,6 +3,7 @@ import { createContext, runInContext } from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
 import { parseAst } from 'rollup/parseAst';
 import * as affinity from '../src/state/pass-affinity.js';
+import { normalizeWorldReportMetadata, WORLD_REPORT_METADATA_KEY } from '../world-progression-lib.js';
 
 const sources = Object.fromEntries(['router', 'map-updater', 'map-evolution', 'map-architect', 'narrative-hooks']
     .map(name => [name, readFileSync(new URL(`../${name}.js`, import.meta.url), 'utf8')]));
@@ -292,6 +293,28 @@ describe('Map Evolution bookkeeping', () => {
         await h.entered.promise; h.context.stopMapEvolutionPass(); h.gate.resolve();
         expect(await pending).toEqual({ skipped: 'stopped' });
         expect(h.settings.mapEvolutionLastFiredBySite).toEqual({ Keep: 'Day 1' });
+        expect(h.persist).toHaveBeenCalledTimes(1);
+    });
+
+    it('feeds Map Evolution reports from the tracked campaign while the host chat id is stale', async () => {
+        const h = evolution();
+        h.context.getActiveChatId = () => 'B';
+        h.context.getEffectiveRouterCampaignPrefix = id => `Campaign${id}`;
+        h.context.WORLD_REPORT_METADATA_KEY = WORLD_REPORT_METADATA_KEY;
+        h.context.normalizeWorldReportMetadata = normalizeWorldReportMetadata;
+        h.ctx.loadWorldInfo = vi.fn(async book => ({ entries: { 0: {
+            comment: 'Day 2', key: ['world report'],
+            content: book === 'CampaignB_World' ? 'B pressure' : 'WRONG pressure',
+        } } }));
+        h.context.pendingWorldReportsForSite = reports => reports;
+        h.context.evolveOneSite = vi.fn(async () => ({ ok: true, noop: true, timeWindow: {} }));
+        install(h.context, 'map-evolution', 'loadRecentWorldReports');
+        expect(await h.context.runMapEvolutionPass()).toMatchObject({ ok: true, noops: 1 });
+        expect(h.ctx.chatId).toBe('A');
+        expect(h.ctx.loadWorldInfo).toHaveBeenCalledExactlyOnceWith('CampaignB_World');
+        expect(h.context.evolveOneSite).toHaveBeenCalledWith(expect.objectContaining({
+            worldReports: [expect.objectContaining({ reportId: 'CampaignB_World::0', content: 'B pressure' })],
+        }));
         expect(h.persist).toHaveBeenCalledTimes(1);
     });
 });

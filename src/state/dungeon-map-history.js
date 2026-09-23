@@ -83,11 +83,18 @@ export function syncLiveMemoHistoryAfterSwipe(settings, targetMemo, baseMemo) {
     const liveIdx = getLiveHistoryIndex(settings);
     if (liveIdx < 0) return;
 
-    // Classic path: ST unshifted the abandoned result at the front (LIVE at 0).
-    // Drop that stone when reverting to the pre-update base memo.
-    if (targetMemo === baseMemo && liveIdx === 0) {
-        if (settings.memoHistory[0] !== baseMemo) {
-            shiftMemoAndMapHistory(settings);
+    // Remove the abandoned result together with its map when the following
+    // stone is the saved base. Chat Link may have inserted archives before it.
+    if (targetMemo === baseMemo && settings.memoHistory[liveIdx] !== baseMemo) {
+        ensureDungeonMapHistory(settings);
+        if (settings.memoHistory[liveIdx + 1] === baseMemo) {
+            settings.memoHistory.splice(liveIdx, 1);
+            settings.dungeonMapHistory.splice(liveIdx, 1);
+        } else {
+            // No saved base stone: do not promote an unrelated older memo, or
+            // claim the abandoned result's occupancy belongs to the base memo.
+            settings.memoHistory[liveIdx] = targetMemo;
+            settings.dungeonMapHistory[liveIdx] = null;
         }
         return;
     }

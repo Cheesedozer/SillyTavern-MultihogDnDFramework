@@ -144,5 +144,33 @@ describe('dungeon map history snapshots', () => {
         syncLiveMemoHistoryAfterSwipe(settings, 'base-memo', 'base-memo');
         expect(settings.memoHistory).toEqual(['archived-conflict', 'base-memo']);
         expect(settings.historyIndex).toBe(1);
+        expect(settings.dungeonMapHistory).toEqual([null, null]);
+    });
+
+    it.each([0, 1, 2])('restores the paired base map after a swipe with LIVE at %s', historyIndex => {
+        const archived = Array.from({ length: historyIndex }, (_, i) => `archive-${i}`);
+        const archivedMaps = archived.map(memo => ({ maps: [memo] }));
+        const baseMap = { maps: ['base occupancy'] };
+        const settings = {
+            memoHistory: [...archived, 'result', 'base', 'older'],
+            dungeonMapHistory: [...archivedMaps, { maps: ['abandoned occupancy'] }, baseMap, null],
+            historyIndex,
+        };
+        syncLiveMemoHistoryAfterSwipe(settings, 'base', 'base');
+        expect(settings.memoHistory).toEqual([...archived, 'base', 'older']);
+        expect(settings.dungeonMapHistory).toEqual([...archivedMaps, baseMap, null]);
+        expect(settings.historyIndex).toBe(historyIndex);
+        expect(getLiveHistoryIndex(settings)).toBe(historyIndex);
+        // Repeating the rollback must not delete the base or an unrelated stone.
+        syncLiveMemoHistoryAfterSwipe(settings, 'base', 'base');
+        expect(settings.memoHistory).toEqual([...archived, 'base', 'older']);
+    });
+
+    it.each([[[]], [['unrelated']]])('keeps LIVE valid when its base is missing and older stones are %j', older => {
+        const settings = { memoHistory: ['result', ...older], dungeonMapHistory: [{ maps: ['abandoned'] }, ...older.map(() => null)], historyIndex: 0 };
+        syncLiveMemoHistoryAfterSwipe(settings, 'base', 'base');
+        expect(settings.memoHistory).toEqual(['base', ...older]);
+        expect(settings.dungeonMapHistory).toEqual([null, ...older.map(() => null)]);
+        expect(getLiveHistoryIndex(settings)).toBe(0);
     });
 });

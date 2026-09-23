@@ -2,6 +2,14 @@
 
 All notable changes to the **Multihog D&D Framework** will be documented in this file.
 
+## [2026.8.94] - 2026-09-23
+
+### Fixed
+- Scene View and Real-Time location generation resolve the Locations lorebook from the tracked chat when SillyTavern's chat ID is stale. Stale scene requests cannot stamp visit tracking for another chat.
+- Map Evolution reads World Reports from the campaign pinned to its pass, preventing another campaign's reports from driving map changes.
+- Linear Stone swipe synchronization follows the LIVE history index after Chat Link archiving or restoring older stones. Rolling back to a saved base keeps its dungeon-map snapshot paired and preserves unrelated archives; missing base snapshots are left unknown rather than reusing abandoned occupancy.
+- Previous-memo archiving retains the stored LIVE map snapshot after slicing non-zero history indices.
+
 ## [2026.8.93] - 2026-09-19
 
 ### Fixed

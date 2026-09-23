@@ -573,6 +573,8 @@ export async function runRealtimeSceneArtCheck() {
  * @param {{ chatId?: string|null }} [opts] Originating chat for visit stamps and image writes.
  */
 export function maybeAutoGenerateImmersionSceneArt(scene, refresh, opts = {}) {
+    const passChatId = resolveImmersionChatId(opts.chatId, SillyTavern.getContext());
+    if (!canCommitPassForChat(passChatId, getActiveChatId())) return;
     const s = getSettings();
     if (!s.portraitAutoGenerateSceneView) return;
     if (!s.locationImages || s.enablePortraits === false) return;
@@ -580,7 +582,6 @@ export function maybeAutoGenerateImmersionSceneArt(scene, refresh, opts = {}) {
     const storagePath = scene?.storagePath;
     if (!storagePath) return;
 
-    const passChatId = resolveImmersionChatId(opts.chatId, SillyTavern.getContext());
     const mode = getRealtimeTriggerMode(s);
     const everyN = Math.max(1, Math.floor(Number(s.portraitRealtimeEveryNOutputs) || 1));
     const lastPath = getLastImmersionSceneArtPath();
