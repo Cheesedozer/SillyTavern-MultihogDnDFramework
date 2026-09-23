@@ -1012,6 +1012,18 @@ describe('Map Evolution', () => {
         expect(evolution).toContain('Never substitute the configured interval for the actual elapsed duration');
         expect(evolution).toContain('pendingWorldReportsForSite');
         expect(evolution).toContain('mapEvolutionWorldReportApplications');
+        expect(evolution).toContain('loadRecentWorldReports(settings, ctx, passChatId)');
+        expect(evolution).toContain('const passChatId = getActiveChatId()');
+        expect(evolution).not.toContain('getEffectiveRouterCampaignPrefix(ctx.chatId || ctx.getCurrentChatId?.() || \'\')');
+        {
+            const loadFn = evolution.slice(
+                evolution.indexOf('async function loadRecentWorldReports'),
+                evolution.indexOf('function pendingWorldReportsForSite'),
+            );
+            expect(loadFn).toContain('chatId || getActiveChatId()');
+            expect(loadFn).toContain('getEffectiveRouterCampaignPrefix(id)');
+            expect(loadFn).not.toContain('getEffectiveRouterCampaignPrefix(ctx.chatId');
+        }
         expect(evolution).toContain('delete transaction.report_outcomes');
         expect(evolution).toContain('siteRoots');
         expect(evolution).toContain('listMappedEvolutionSites');

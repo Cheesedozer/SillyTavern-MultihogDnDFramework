@@ -154,8 +154,17 @@ function reportApplicationsForSite(settings, siteRoot) {
     return settings.mapEvolutionWorldReportApplications[siteKey];
 }
 
-async function loadRecentWorldReports(settings, ctx) {
-    const prefix = getEffectiveRouterCampaignPrefix(ctx.chatId || ctx.getCurrentChatId?.() || '');
+/**
+ * @param {object} settings
+ * @param {object} ctx
+ * @param {string|null|undefined} [chatId] Originating chat — never re-read live ctx.chatId.
+ */
+async function loadRecentWorldReports(settings, ctx, chatId = null) {
+    // Prefer the pinned / tracked chat id — ctx.chatId can lag behind runtimeState during
+    // CHAT_CHANGED, and loading another campaign's World book feeds foreign pressure into
+    // this chat's map mutations / report-application stamps.
+    const id = chatId || getActiveChatId() || ctx?.chatId || ctx?.getCurrentChatId?.() || '';
+    const prefix = getEffectiveRouterCampaignPrefix(id);
     const worldBookName = prefix ? `${prefix}_World` : 'World';
     let book = null;
     try { book = await ctx.loadWorldInfo(worldBookName); } catch (_) {}
@@ -759,7 +768,8 @@ export async function runMapEvolutionPass({
 } = {}) {
     const controller = new AbortController();
     const signal = controller.signal;
-    const ownsProjection = createChatCommitGuard(getActiveChatId(), getActiveChatId);
+    const passChatId = getActiveChatId();
+    const ownsProjection = createChatCommitGuard(passChatId, getActiveChatId);
     const ownsChat = () => ownsProjection() && !signal.aborted;
     hydrateWorldProgressionFromChatState();
     const settings = getSettings();
@@ -808,7 +818,7 @@ export async function runMapEvolutionPass({
         const digestLines = [];
         const results = [];
         const books = loaded.books;
-        const recentWorldReports = chatCommitResult(ownsChat, await loadRecentWorldReports(settings, ctx));
+        const recentWorldReports = chatCommitResult(ownsChat, await loadRecentWorldReports(settings, ctx, passChatId));
         const recentStory = formatMapEvolutionRecentStory(ctx.chat, settings, lookback);
 
         for (const site of [...baselineOnly, ...toEvolve]) {
