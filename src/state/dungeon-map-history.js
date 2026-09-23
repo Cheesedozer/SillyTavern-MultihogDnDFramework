@@ -49,6 +49,52 @@ export function getDungeonMapHistoryEntry(settings, index) {
     return settings.dungeonMapHistory[index] ?? null;
 }
 
+/** Valid LIVE Linear Stone index, or -1 when LIVE is outside history. */
+export function getLiveHistoryIndex(settings) {
+    if (!settings || !Array.isArray(settings.memoHistory)) return -1;
+    const liveIndex = Number.isInteger(settings.historyIndex) ? settings.historyIndex : -1;
+    if (liveIndex < 0 || liveIndex >= settings.memoHistory.length) return -1;
+    return liveIndex;
+}
+
+/**
+ * Map occupancy to pair with a previousMemo archive after an optional
+ * sliceMemoAndMapHistory(historyIndex). When LIVE was in-history, the slice
+ * (or a no-op slice at 0) leaves that map at slot 0 — prefer it over a fresh
+ * capture so a failed capture cannot drop occupancy. Chat Link archives leave
+ * historyIndex > 0; treating only === 0 as LIVE skipped the stored map.
+ */
+export function previousMapForHistoryArchive(settings, mapSnapshot) {
+    const liveIndex = Number.isInteger(settings?.historyIndex) ? settings.historyIndex : -1;
+    if (liveIndex >= 0) {
+        return settings.dungeonMapHistory?.[0] ?? mapSnapshot;
+    }
+    return mapSnapshot;
+}
+
+/**
+ * After a State Tracker swipe restores currentMemo, keep the LIVE Linear Stone
+ * text aligned. LIVE follows historyIndex — Chat Link conflict archiving and
+ * "restore as LIVE" leave it off index 0. Writing memoHistory[0] corrupted the
+ * archived/newest stone and desynced the real LIVE slot.
+ */
+export function syncLiveMemoHistoryAfterSwipe(settings, targetMemo, baseMemo) {
+    if (!settings || !Array.isArray(settings.memoHistory)) return;
+    const liveIdx = getLiveHistoryIndex(settings);
+    if (liveIdx < 0) return;
+
+    // Classic path: ST unshifted the abandoned result at the front (LIVE at 0).
+    // Drop that stone when reverting to the pre-update base memo.
+    if (targetMemo === baseMemo && liveIdx === 0) {
+        if (settings.memoHistory[0] !== baseMemo) {
+            shiftMemoAndMapHistory(settings);
+        }
+        return;
+    }
+
+    settings.memoHistory[liveIdx] = targetMemo;
+}
+
 /** After a live [MAP] mutation, keep the current LIVE history slot in sync. */
 export function recordLiveDungeonMapSnapshot(settings, mapSnapshot) {
     if (!settings || mapSnapshot == null) return;
@@ -56,8 +102,8 @@ export function recordLiveDungeonMapSnapshot(settings, mapSnapshot) {
     // LIVE is not always at index 0 — Chat Link conflict archiving (and other
     // unshifts) bump historyIndex so the LIVE pointer follows its memo. Writing
     // only slot 0 left the real LIVE map stale after exploration.
-    const liveIndex = Number.isInteger(settings.historyIndex) ? settings.historyIndex : -1;
-    if (liveIndex >= 0 && liveIndex < settings.dungeonMapHistory.length) {
+    const liveIndex = getLiveHistoryIndex(settings);
+    if (liveIndex >= 0) {
         settings.dungeonMapHistory[liveIndex] = mapSnapshot;
     }
 }

@@ -54,7 +54,7 @@ import {
     clearMemoAndMapHistory,
     ensureDungeonMapHistory,
     getDungeonMapHistoryEntry,
-    shiftMemoAndMapHistory,
+    previousMapForHistoryArchive,
     sliceMemoAndMapHistory,
     unshiftMemoAndMapHistory,
 } from './src/state/dungeon-map-history.js';
@@ -3061,10 +3061,7 @@ async function runStateModelPass(narrativeOutput, isFullContext = false, overrid
             }
             ensureDungeonMapHistory(settings);
             if (settings.memoHistory[0] !== previousMemoSnapshot) {
-                const previousMap = settings.historyIndex === 0
-                    ? (settings.dungeonMapHistory[0] ?? mapSnapshot)
-                    : mapSnapshot;
-                unshiftMemoAndMapHistory(settings, previousMemoSnapshot, previousMap);
+                unshiftMemoAndMapHistory(settings, previousMemoSnapshot, previousMapForHistoryArchive(settings, mapSnapshot));
             }
             unshiftMemoAndMapHistory(settings, merged, mapSnapshot);
             settings.historyIndex = 0;
@@ -3487,10 +3484,7 @@ export async function sendDirectPrompt(message, options = {}) {
                 }
                 ensureDungeonMapHistory(settings);
                 if (settings.memoHistory[0] !== sanitizedCurrentFull) {
-                    const previousMap = settings.historyIndex === 0
-                        ? (settings.dungeonMapHistory[0] ?? mapSnapshot)
-                        : mapSnapshot;
-                    unshiftMemoAndMapHistory(settings, sanitizedCurrentFull, previousMap);
+                    unshiftMemoAndMapHistory(settings, sanitizedCurrentFull, previousMapForHistoryArchive(settings, mapSnapshot));
                 }
                 unshiftMemoAndMapHistory(settings, merged, mapSnapshot);
                 settings.historyIndex = 0;

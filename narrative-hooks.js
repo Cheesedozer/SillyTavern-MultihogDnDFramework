@@ -20,7 +20,7 @@ import { runRouterPass, saveSceneToLorebook, scanAssistantOutputForKeywords, par
 import { getActiveMapUpdaterSiteRoot, maybeRollbackMapUpdaterForSwipe, runMapUpdaterPass, shouldForceBuildingPopulationPass, stopMapUpdaterPass } from './map-updater.js';
 import { maybeRollbackMapEvolutionForSwipe, maybeRunMapEvolution, stopMapEvolutionPass } from './map-evolution.js';
 import { formatNarratorSiteActivity } from './map-evolution-lib.js';
-import { shiftMemoAndMapHistory, ensureDungeonMapHistory, sliceMemoAndMapHistory, unshiftMemoAndMapHistory } from './src/state/dungeon-map-history.js';
+import { ensureDungeonMapHistory, previousMapForHistoryArchive, sliceMemoAndMapHistory, syncLiveMemoHistoryAfterSwipe, unshiftMemoAndMapHistory } from './src/state/dungeon-map-history.js';
 import { canCommitPassForChat, createChatCommitGuard, chatCommitResult } from './src/state/pass-affinity.js';
 import { logTransaction } from './debug-viewer.js';
 import { recordSchedulerEvent } from './swipe-scheduler-debug.js';
@@ -1014,10 +1014,7 @@ export function registerDiceSlashCommand() {
             }
             ensureDungeonMapHistory(settings);
             if (settings.memoHistory?.[0] !== currentMemo) {
-                const previousMap = settings.historyIndex === 0
-                    ? (settings.dungeonMapHistory[0] ?? mapSnapshot)
-                    : mapSnapshot;
-                unshiftMemoAndMapHistory(settings, currentMemo, previousMap);
+                unshiftMemoAndMapHistory(settings, currentMemo, previousMapForHistoryArchive(settings, mapSnapshot));
             }
             unshiftMemoAndMapHistory(settings, updatedMemo, mapSnapshot);
             settings.historyIndex = 0;
@@ -1870,14 +1867,7 @@ function applyMemoSwipeRollback(lastAiMsg, settings) {
 
             if (Array.isArray(settings.memoHistory)) {
                 const baseMemo = lastAiMsg.extra.rpgMemoRollback?.[prevSwipeId] || lastAiMsg.extra.rpgMemoRollback?.[swipeId];
-                if (targetMemo === baseMemo) {
-                    if (settings.memoHistory[0] !== baseMemo) {
-                        shiftMemoAndMapHistory(settings);
-                        if (settings.historyIndex !== undefined && settings.historyIndex > 0) settings.historyIndex--;
-                    }
-                } else {
-                    settings.memoHistory[0] = targetMemo;
-                }
+                syncLiveMemoHistoryAfterSwipe(settings, targetMemo, baseMemo);
             }
 
             if (lastAiMsg.extra.rpgMemoRollback) delete lastAiMsg.extra.rpgMemoRollback[swipeId];

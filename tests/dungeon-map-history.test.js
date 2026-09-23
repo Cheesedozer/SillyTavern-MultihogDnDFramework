@@ -7,8 +7,11 @@ import {
 import {
     ensureDungeonMapHistory,
     getDungeonMapHistoryEntry,
+    getLiveHistoryIndex,
+    previousMapForHistoryArchive,
     recordLiveDungeonMapSnapshot,
     sliceMemoAndMapHistory,
+    syncLiveMemoHistoryAfterSwipe,
     unshiftMemoAndMapHistory,
 } from '../src/state/dungeon-map-history.js';
 
@@ -90,5 +93,56 @@ describe('dungeon map history snapshots', () => {
         };
         recordLiveDungeonMapSnapshot(settings, { bookName: 'Camp_Locations', maps: [{ uid: '0', map: 'live' }] });
         expect(settings.dungeonMapHistory).toEqual([{ bookName: 'Camp_Locations', maps: [{ uid: '0', map: 'older' }] }]);
+    });
+
+    it('resolves LIVE history index including after Chat Link bumps it past 0', () => {
+        expect(getLiveHistoryIndex({ memoHistory: ['a', 'b'], historyIndex: 1 })).toBe(1);
+        expect(getLiveHistoryIndex({ memoHistory: ['a'], historyIndex: -1 })).toBe(-1);
+        expect(getLiveHistoryIndex({ memoHistory: ['a'], historyIndex: 3 })).toBe(-1);
+    });
+
+    it('prefers the post-slice LIVE map when archiving after historyIndex > 0', () => {
+        const settings = {
+            memoHistory: ['live'],
+            dungeonMapHistory: [{ bookName: 'Camp_Locations', maps: [{ uid: '0', map: 'stored-live' }] }],
+            historyIndex: 1,
+        };
+        expect(previousMapForHistoryArchive(settings, { maps: [{ uid: '0', map: 'fresh' }] }))
+            .toEqual({ bookName: 'Camp_Locations', maps: [{ uid: '0', map: 'stored-live' }] });
+        expect(previousMapForHistoryArchive({ historyIndex: -1, dungeonMapHistory: [null] }, 'fresh')).toBe('fresh');
+    });
+
+    it('updates the LIVE stone on swipe when historyIndex is not 0', () => {
+        const settings = {
+            memoHistory: ['archived-conflict', 'live-memo'],
+            dungeonMapHistory: [null, { maps: [{ uid: '0', map: 'live' }] }],
+            historyIndex: 1,
+        };
+        syncLiveMemoHistoryAfterSwipe(settings, 'swipe-result', 'base-memo');
+        expect(settings.memoHistory).toEqual(['archived-conflict', 'swipe-result']);
+        expect(settings.historyIndex).toBe(1);
+        expect(settings.dungeonMapHistory[1]).toEqual({ maps: [{ uid: '0', map: 'live' }] });
+    });
+
+    it('shifts only the front LIVE stone when reverting a classic historyIndex-0 swipe', () => {
+        const settings = {
+            memoHistory: ['swipe-result', 'base-memo'],
+            dungeonMapHistory: [{ maps: [{ uid: '0', map: 'new' }] }, { maps: [{ uid: '0', map: 'base' }] }],
+            historyIndex: 0,
+        };
+        syncLiveMemoHistoryAfterSwipe(settings, 'base-memo', 'base-memo');
+        expect(settings.memoHistory).toEqual(['base-memo']);
+        expect(settings.dungeonMapHistory).toEqual([{ maps: [{ uid: '0', map: 'base' }] }]);
+    });
+
+    it('does not shift an archived front stone when reverting a non-zero LIVE swipe', () => {
+        const settings = {
+            memoHistory: ['archived-conflict', 'swipe-result'],
+            dungeonMapHistory: [null, { maps: [{ uid: '0', map: 'live' }] }],
+            historyIndex: 1,
+        };
+        syncLiveMemoHistoryAfterSwipe(settings, 'base-memo', 'base-memo');
+        expect(settings.memoHistory).toEqual(['archived-conflict', 'base-memo']);
+        expect(settings.historyIndex).toBe(1);
     });
 });
