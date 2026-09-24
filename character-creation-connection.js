@@ -204,4 +204,22 @@ export function bindCharacterCreationConnectionSettings(rootEl) {
             saveSettings();
         });
     }
+
+    // Origin System options (Origin Start uses this same connection).
+    const originInject = drawer.querySelector('#rt-origin-inject-enabled');
+    if (originInject instanceof HTMLInputElement) {
+        originInject.checked = s.originInjectEnabled !== false;
+        originInject.addEventListener('change', () => {
+            getSettings().originInjectEnabled = originInject.checked;
+            saveSettings();
+        });
+    }
+    const originPrompt = drawer.querySelector('#rt-origin-architect-prompt');
+    if (originPrompt instanceof HTMLTextAreaElement) {
+        originPrompt.value = s.originArchitectSystemPrompt || '';
+        originPrompt.addEventListener('input', () => {
+            getSettings().originArchitectSystemPrompt = originPrompt.value;
+            saveSettings();
+        });
+    }
 }

@@ -127,6 +127,25 @@ You can also use **Character Creator** with explicit name/class/level/gear, or p
 
 The Character Creator random-name button uses the combined cross-genre name library without genre filtering. Random **Other Ways to Begin** generators use the matching genre pool and pass the selected full name to the character generator.
 
+### Origin Start (fantasy)
+
+**🏰 Origin Start** sits under Character Creator on the empty tracker. It builds a fantasy character from one of eight origins: **Exiled Royal**, **Vampire Lord**, **Freed Undead Minion**, **Oathbreaker Knight**, **Willing Cultist**, **Artifact-Bound Nobody**, **Abandoned Champion**, and **Defector Spy**. Every origin guarantees two levers that shape play, not just backstory:
+
+- **Social Recognition Lever** — how NPCs recognize the character (a mark of royalty, a cult symbol, a visible curse, a spy's trained tell).
+- **Personal Pressure Lever** — a clock, cost, curse or dependency that forces decisions over time (the Hunger, a worsening decay, an artifact's cost of use, an organization's leverage).
+
+The wizard has sections for identity, race, the origin's own choices, the **origin nation** (majority race, government, 1–2 culture vibes, environment, slavery, blood farms where vampires rule), allies and secrets, an optional character sheet (appearance, personality, talents, class, level, gear), and campaign/output options.
+
+- **Races:** the standard D&D races plus **Vampire** (Exiled Royal and Vampire Lord only), **Silkborn** (a severed member of a spider-folk hive mind), a **Turned** option for most origins, and a **custom race** template.
+- **Required choices vs blanks:** you must pick every required option; any text field left blank is written by the AI.
+- **Selection conflicts** are checked live. When two choices cannot coexist (Matriarchal + Patriarchal, a hidden curse that causes public incidents, a Freed Minion with neither worsening decay nor lich-knowledge, an Exiled Royal from a nation without a ruling line…), the wizard shows both ways out as buttons and **Begin Origin** stays disabled until you pick one.
+- **Advanced — AI-filled:** pursuers and (for the Vampire Lord and Freed Minion) what the origin nation has become *now* are written by the AI unless you fill them in.
+- **Origin secrets** (on by default): the AI privately creates 1–2 facts about the character's past that the character does not know. You know they exist, never what they are, until play reveals them.
+
+The pipeline mirrors Instant Action: it applies your Narrator Configuration, runs one **Origin Architect** pass on the Character Creation connection (filling blanks, deriving the nation, creating pursuers and secrets, and writing an opening situation), stores the result for this chat, generates the character sheet and Lorebook Agent Player Card, creates a name-only ST persona, and — if **Send starter message** is checked — opens the first scene at your Current location.
+
+During play, a compact `[ORIGIN]` block is added to every narrator turn: recognition, pressure levers, pursuers, runtime portrayal rules (for example, a Silkborn's collective "we" speech), the origin arc, and the hidden secrets with instructions to plant only subtle seeds. Type **`/origin`** to see the chat's origin; secrets appear there only while **Debug Mode** is on. `/origin clear` removes the origin from the chat. The injection toggle and an optional Origin Architect prompt override are under **Connections & Models → Character Creation & Starting Modes**.
+
 ### Chat-Linked Mode
 
 On by default. Each chat keeps its own memo, quests, portraits, Lorebook Agent watermarks, World Progression timer, Map Evolution Last Evolved clocks, per-site Evolution backlogs, and related campaign data under that chat ID. Switching chats saves the old partition and loads the new one. Campaign lorebook prefix is derived from the chat filename (sanitized) unless overridden.
@@ -157,6 +176,7 @@ Understanding this loop is more important than memorizing every setting.
 When you send a message, the framework finds the last user message and can prepend:
 
 - `[PLAYER_CHARACTER]` (if linked)
+- `[ORIGIN]` (if the chat was started with Origin Start) — recognition, pressure levers, pursuers, runtime rules, and hidden origin secrets
 - `[NPC_RELATIONS]`
 - An **RNG Queue** block (when Pre-Seeded RNG applies — see Hybrid RNG)
 - `### STATE MEMO (DO NOT REPEAT)` — the **previous** turn’s tracked state

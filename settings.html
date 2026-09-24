@@ -633,7 +633,7 @@
                             </div>
                             <div class="inline-drawer-content">
                                 <div class="flex-container flexFlowColumn gap-1">
-                                    <div style="font-size: 0.75em; opacity: 0.6; line-height: 1.35; margin-bottom: 4px;">Shared by Character Creator, Instant Action, and Other Ways to Begin.</div>
+                                    <div style="font-size: 0.75em; opacity: 0.6; line-height: 1.35; margin-bottom: 4px;">Shared by Character Creator, Instant Action, Origin Start, and Other Ways to Begin.</div>
                                     <label style="font-size: 0.8em;">Connection Source</label>
                                     <select id="rt-character-creation-connection-source" class="text_pole" style="font-size: 0.8em;">
                                         <option value="default">Main API</option>
@@ -662,6 +662,15 @@
                                     </div>
                                     <label style="font-size: 0.8em; margin-top: 4px;">Preset</label>
                                     <select id="rt-character-creation-completion-preset" class="text_pole" style="font-size: 0.8em;"></select>
+                                    <hr style="opacity: 0.2; margin: 8px 0 4px;" />
+                                    <b style="font-size: 0.82em;">🏰 Origin System</b>
+                                    <div style="font-size: 0.75em; opacity: 0.6; line-height: 1.35;">Origin Start uses the connection above for its Origin Architect pass. Type <code>/origin</code> in chat to view a chat's origin (secrets only in Debug Mode).</div>
+                                    <label class="checkbox_label" style="font-size: 0.8em;" title="Adds the chat's [ORIGIN] block (recognition, pressure levers, pursuers, runtime rules, hidden secrets) to every narrator turn.">
+                                        <input type="checkbox" id="rt-origin-inject-enabled" checked />
+                                        <span>Inject [ORIGIN] block every turn</span>
+                                    </label>
+                                    <label style="font-size: 0.8em;" for="rt-origin-architect-prompt">Origin Architect system prompt override</label>
+                                    <textarea id="rt-origin-architect-prompt" class="text_pole" rows="3" style="font-size: 0.78em; resize: vertical;" placeholder="Leave empty to use the shipped Origin Architect prompt. An override must still ask for the same JSON shape."></textarea>
                                 </div>
                             </div>
                         </div>

@@ -391,6 +391,22 @@ export function buildDefaultSettings() {
 
         characterCreatorPanelOpen: false,
 
+        /** Origin Start wizard draft (Origin System); survives onboarding re-renders. */
+
+        originDraft: null,
+
+        /** True while the Origin Start wizard is open on the onboarding screen. */
+
+        originPanelOpen: false,
+
+        /** Inject the per-chat [ORIGIN] block (levers, pursuers, runtime rules, hidden secrets) every turn. */
+
+        originInjectEnabled: true,
+
+        /** Optional override for the Origin Architect system prompt; empty uses the shipped prompt. */
+
+        originArchitectSystemPrompt: '',
+
         barColors: {},
 
         animateAllCustomBarChanges: true,

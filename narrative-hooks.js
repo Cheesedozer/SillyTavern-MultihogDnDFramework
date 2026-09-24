@@ -53,6 +53,7 @@ import {
     seedMapArchitectContinueText,
     stripCreateAreaMapCommand,
 } from './map-architect-opener.js';
+import { buildOriginInjectionBlock } from './src/features/origin/origin-lib.js';
 export { isPercentFormula, resolveDiceCompare };
 
 const dungeonMissingMapWarnings = new Set();
@@ -1422,6 +1423,16 @@ export function installInterceptor() {
                     const pc = settings.chatStates[curChatId].playerCharacter;
                     injections += `[PLAYER_CHARACTER]\nName: ${pc.name}\n${pc.bio}\n[/PLAYER_CHARACTER]\n\n`;
                     if (settings.debugMode) console.log("Player Character injected.");
+                }
+
+                // [ORIGIN] — Origin System levers, pursuers, runtime rules and hidden secrets.
+                const originRecord = curChatId ? settings.chatStates?.[curChatId]?.origin : null;
+                if (originRecord && settings.originInjectEnabled !== false) {
+                    const originBlock = buildOriginInjectionBlock(originRecord);
+                    if (originBlock) {
+                        injections += originBlock;
+                        if (settings.debugMode) console.log("[RPG Tracker] Origin block injected.");
+                    }
                 }
 
                 // [NPC_RELATIONS] — before pacing/CYOA/RNG.

@@ -93,7 +93,7 @@ const KNOWN_PARTITION_KEYS = new Set([
     'initialDate', 'initialTime', 'npcRelationshipMax', 'npcRelationshipValues',
     'npcRelationshipLog', 'setup', 'campaignBooks',
     'lastImmersionSceneArtPath', 'lastImmersionSceneArtChatLen',
-    'playerCharacter', 'dungeonReality', 'adventureCompanion',
+    'playerCharacter', 'dungeonReality', 'adventureCompanion', 'origin',
 ]);
 
 const hasItems = (value) => Array.isArray(value) && value.length > 0;
@@ -130,6 +130,7 @@ export function partitionHasCampaignSubstance(p) {
         || hasMapEntries(p.worldProgressionLocationLastAdvanced)
         || hasItems(p.mapEvolutionSelectedRoots)) return true;
     if (Object.prototype.hasOwnProperty.call(p, 'playerCharacter') && p.playerCharacter != null) return true;
+    if (Object.prototype.hasOwnProperty.call(p, 'origin') && p.origin != null) return true;
     if ((Number.isFinite(Number(p.historyIndex)) && Number(p.historyIndex) >= 0)
         || (Number(p.routerLastRunChatLength) || 0) > 0
         || (Number(p.routerLastRunAt) || 0) > 0

@@ -22,6 +22,7 @@ import { migrateAllEmbeddedPortraits, countEmbeddedPortraitDataUrls, purgeAllPor
 import { loadPanelGeometry, loadDeltaHeight, makeDraggable, makeResizableTR, makeResizableBR, makeResizableBL, setupResizeObserver, setupDeltaResize, canResizePanels, jqueryToggleSlide, resolveViewportClampedGeometry, clampFloatingPanelToViewport } from './ui-geometry.js';
 import { applyCustomTheme, openThemeWizard, refreshSavedThemesList, handleRecolor, undoThemeChange } from './theme-manager.js';
 import { showCharacterRollPanel, showPcImportPanel, handleCharacterCreatorGenerate, generatePersonaBio, showPersonaConfirmOverlay, extractCharNameFromMemo, activateSillyTavernPersona } from './character-creator.js';
+import { showOriginPanel, registerOriginSlashCommand } from './src/features/origin/origin-wizard.js';
 import { createOrSelectGameMasterCard, resolveNarratorCardName } from './src/ui/game-master-card.js';
 import { bindCharacterCreationConnectionSettings, getCharacterCreationConnectionSettings } from './character-creation-connection.js';
 import { bindQuickStartEvents } from './quickstart.js';
@@ -5015,6 +5016,9 @@ export function refreshRenderedView() {
             if (emptyEl && s.characterCreatorPanelOpen) {
                 showCharacterRollPanel(emptyEl);
             }
+            if (emptyEl && s.originPanelOpen) {
+                showOriginPanel(emptyEl);
+            }
         }
 
         // Update footer location: try parsing from recent chat status footer first, fallback to memo
@@ -6093,6 +6097,7 @@ function organizeConnectionSettingsUI() {
         getCharacterCreationConnectionSettings,
         handleCategorySettings,
         handleCharacterCreatorGenerate,
+        showOriginPanel,
         handleRecolor,
         loadBenchedExpanded,
         loadCollapsed,
@@ -8029,6 +8034,7 @@ function organizeConnectionSettingsUI() {
         registerDiceFunctionTool();
         syncLocationMappingRuntime();
         registerDiceSlashCommand();
+        registerOriginSlashCommand();
 
         // ─── Quest System ───
         import('./quests.js').then(({ unregisterLogQuestTool, installQuestDebugTools, computeFrustration }) => {

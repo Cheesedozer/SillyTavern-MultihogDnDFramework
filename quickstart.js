@@ -76,7 +76,7 @@ function setQuickStartBusy(rootEl, disabled) {
 /**
  * Apply the player's current Narrator Configuration before Instant Action begins.
  */
-async function applyQuickStartConfiguration(canCommit) {
+export async function applyQuickStartConfiguration(canCommit) {
     saveSettings();
     await autoApplySysprompt(true, { canCommit });
     if (!canCommit()) return;
@@ -90,7 +90,7 @@ async function applyQuickStartConfiguration(canCommit) {
  * Send an outgoing user chat message the same way CYOA buttons do.
  * @param {string} text
  */
-function sendOutgoingChatMessage(text) {
+export function sendOutgoingChatMessage(text) {
     const textarea = /** @type {HTMLTextAreaElement|null} */ (document.getElementById('send_textarea'));
     const sendBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('send_but'));
     if (!textarea || !sendBtn) {

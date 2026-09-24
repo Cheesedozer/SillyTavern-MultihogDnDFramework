@@ -2,6 +2,14 @@
 
 All notable changes to the **Multihog D&D Framework** will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **Origin Start** (fantasy): a new onboarding start that builds a character from one of eight origins (Exiled Royal, Vampire Lord, Freed Undead Minion, Oathbreaker Knight, Willing Cultist, Artifact-Bound Nobody, Abandoned Champion, Defector Spy). The wizard covers races (including Vampire, Silkborn, Turned, and custom races), the origin nation (government, culture vibes, Then/Now snapshots), pursuers, allies, and optional hidden origin secrets. Selection conflicts are checked live, and each one offers buttons to keep either choice.
+- An Origin Architect pass fills blanks, derives the nation, instantiates pursuers, and creates hidden secrets. The start then produces the usual character sheet, Lorebook Agent Player Card, name-only persona, and an optional opening scene.
+- A per-chat `[ORIGIN]` block is injected every narrator turn with the character's recognition lever, pressure levers, pursuers, runtime rules, and hidden secrets. `/origin` shows the chat's origin (secrets only in Debug Mode); `/origin clear` removes it.
+- Game Cartridges carry the Origin System settings (injection toggle and Origin Architect prompt override).
+
 ## [2026.8.94] - 2026-09-23
 
 ### Fixed
