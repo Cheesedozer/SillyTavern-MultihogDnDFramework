@@ -54,6 +54,7 @@ import {
     stripCreateAreaMapCommand,
 } from './map-architect-opener.js';
 import { buildOriginInjectionBlock } from './src/features/origin/origin-lib.js';
+import { buildCampaignTurnInjection, runCampaignChroniclerPass, peekCampaignWorldDirectives, clearCampaignWorldDirectives } from './src/features/campaign/campaign-runtime.js';
 export { isPercentFormula, resolveDiceCompare };
 
 const dungeonMissingMapWarnings = new Set();
@@ -1413,9 +1414,14 @@ export function installInterceptor() {
             if (skipInjection) console.log("[RPG Tracker] Path 1 active: skipping user-message injection; keyword scan will still run.");
         }
 
+        // Four-act campaign: this turn's Brief (with any (( rush/linger/rest )) overrides applied).
+        // Quiet (summaries, side tools) and impersonate generations are not narrator turns.
+        const campaignTurn = (skipInjection || ['quiet', 'impersonate'].includes(type)) ? null : chatCommitResult(ownsChat, await buildCampaignTurnInjection(
+            SillyTavern.getContext().chatId || globalThis._rpgCurrentChatId?.(), content));
+
         // Core user-message injection every turn: PC / relations / pacing / CYOA / RNG / memo / quests.
         // CYOA / pacing follow the State Tracker master toggle (same as Persistent Maps).
-        if (!skipInjection && (settings.enabled || cyoaActive || pacingInject)) {
+        if (!skipInjection && (settings.enabled || cyoaActive || pacingInject || campaignTurn)) {
             if (settings.enabled) {
                 // [PLAYER_CHARACTER] — always injected at the top of the core block
                 const curChatId = SillyTavern.getContext().chatId || globalThis._rpgCurrentChatId?.();
@@ -1427,14 +1433,23 @@ export function installInterceptor() {
 
                 // [ORIGIN] — Origin System levers, pursuers, runtime rules and hidden secrets.
                 const originRecord = curChatId ? settings.chatStates?.[curChatId]?.origin : null;
-                if (originRecord && settings.originInjectEnabled !== false) {
+                // Not for quiet/impersonate passes: the block carries hidden secrets, and a summary could surface them.
+                if (originRecord && settings.originInjectEnabled !== false && !['quiet', 'impersonate'].includes(type)) {
                     const originBlock = buildOriginInjectionBlock(originRecord);
                     if (originBlock) {
                         injections += originBlock;
                         if (settings.debugMode) console.log("[RPG Tracker] Origin block injected.");
                     }
                 }
+            }
 
+            // [CAMPAIGN] — the Director's Brief for this reply and the Narrator's campaign rules.
+            if (campaignTurn?.block) {
+                injections += campaignTurn.block;
+                if (settings.debugMode) console.log("[RPG Tracker] Campaign Brief injected.");
+            }
+
+            if (settings.enabled) {
                 // [NPC_RELATIONS] — before pacing/CYOA/RNG.
                 const relBlock = chatCommitResult(ownsChat, await buildNpcRelationsBlock(settings));
                 if (relBlock) injections += relBlock;
@@ -1442,7 +1457,8 @@ export function installInterceptor() {
 
             // Every-turn bundle just above RNG: narrative length/pacing → CYOA → (RNG below).
             const bundleParts = [];
-            const modeTags = buildNarrativeModeTags(settings.narrativePacing);
+            // Campaign tempo drives pacing: Rush → shorter outputs, Rest beat → downtime (Q18).
+            const modeTags = buildNarrativeModeTags(campaignTurn?.pacingMode || settings.narrativePacing);
             if (modeTags) bundleParts.push(modeTags);
             if (cyoaActive) {
                 let cyoaBlock = buildCyoaModeBlock(settings.cyoaConfig || {});
@@ -3192,6 +3208,11 @@ export async function onGenerationEnded() {
             }
         }
 
+        // Four-act campaign: the Chronicler records this reply and pre-writes the next Brief.
+        // After the State Tracker (it reads the fresh memo), before World Progression
+        // (a filled clock's Shift becomes a World Progression directive).
+        chatCommitResult(ownsChat, await runCampaignChroniclerPass({ generationType: currentType }));
+
         // Map Updater cadence is independent of Lorebook Agent. It can run every turn
         // while LA stays on a slower record/relationship schedule. Occupancy runs before
         // World Progression / Map Evolution so Evolution cannot move something play just destroyed.
@@ -3399,5 +3420,7 @@ async function maybeRunWorldProgression() {
     // Guard: don't start a World Progression pass while the Lorebook Agent is already running
     if (isRouterRunning()) return;
 
-    await runWorldProgressionPass(timeStr, currentMinutes);
+    const campaignDirectives = peekCampaignWorldDirectives();
+    const wpResult = await runWorldProgressionPass(timeStr, currentMinutes, campaignDirectives);
+    if (campaignDirectives && wpResult && wpResult.ok !== false) await clearCampaignWorldDirectives();
 }

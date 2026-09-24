@@ -53,6 +53,7 @@ function chatStateSubstanceScore(state) {
     }
     if (state.playerCharacter) score += 4;
     if (state.origin) score += 4;
+    if (state.campaign) score += 6;
     if (Array.isArray(state.adventureCompanion?.history)) {
         score += Math.min(state.adventureCompanion.history.length, 20);
     }
@@ -600,6 +601,9 @@ export function saveChatState(chatId, opts = {}) {
         // Origin System record (profile, levers, pursuers, hidden secrets) — written
         // once by the Origin Start pipeline, never from the live projection.
         origin: existing.origin,
+
+        // Four-act campaign (Ledger, intake, last Pulse) — written by the campaign runtime.
+        campaign: existing.campaign,
 
         // Authored directly in this partition by the narrative interceptor.
         dungeonReality: existing.dungeonReality ? JSON.parse(JSON.stringify(existing.dungeonReality)) : null,

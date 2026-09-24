@@ -682,6 +682,8 @@
                     <div id="rpg_connection_slot_map_runtime" class="rt-connection-drawer-slot"></div>
                     <div id="rpg_connection_slot_map_evolution" class="rt-connection-drawer-slot"></div>
                     <div id="rpg_connection_slot_world_progression" class="rt-connection-drawer-slot"></div>
+                    <div id="rpg_connection_slot_campaign_chronicler" class="rt-connection-drawer-slot"></div>
+                    <div id="rpg_connection_slot_campaign_architect" class="rt-connection-drawer-slot"></div>
                     <div id="rpg_connection_slot_portraits" class="rt-connection-drawer-slot"></div>
 
                     <div class="rt-connection-apply-all" id="rpg_connection_apply_all_box">
@@ -694,6 +696,115 @@
                             <button type="button" id="rpg_connection_apply_all_btn" class="menu_button interactable">
                                 <i class="fa-solid fa-clone"></i> Apply to All
                             </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SUB-DRAWER: CAMPAIGN DIRECTOR (four-act campaign structure) -->
+            <div class="inline-drawer" id="rpg_campaign_director_drawer">
+                <div class="inline-drawer-toggle inline-drawer-header">
+                    <i class="fa-solid fa-map" style="margin-right: 8px; opacity: 0.7;"></i>
+                    <b>Campaign Director</b>
+                    <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+                </div>
+                <div class="inline-drawer-content">
+                    <div class="flex-container flexFlowColumn gap-1">
+                        <div style="font-size: 0.8em; opacity: 0.75; line-height: 1.4;">A four-act campaign in the style of Baldur's Gate 3, per chat. After every reply a <b>Chronicler</b> records what happened in a hidden Ledger (clocks, seeds, arcs, canon) and, as the <b>Director</b>, plans the next reply's pacing and plot beats. An <b>Architect</b> builds the campaign at session zero and rebuilds it at each act transition. Type <code>/campaign</code> in chat for status; <code>/campaign peek</code> shows the hidden Ledger in Debug Mode.</div>
+                        <div class="flex-container gap-1">
+                            <button id="rpg_campaign_begin" class="menu_button interactable" type="button"><i class="fa-solid fa-flag"></i> Begin campaign in this chat</button>
+                            <button id="rpg_campaign_status" class="menu_button interactable" type="button"><i class="fa-solid fa-scroll"></i> Status</button>
+                            <button id="rpg_campaign_end" class="menu_button interactable" type="button"><i class="fa-solid fa-stop"></i> End</button>
+                        </div>
+                        <label class="checkbox_label" title="When the player's message jumps scenes or uses (( rush/flow/linger/rest )), make one short Director call before the reply to rewrite the Brief. Off: code applies the override and the Narrator follows the player.">
+                            <input type="checkbox" id="rpg_campaign_redirect" />
+                            <span>Re-direct before replies when the player breaks the plan (extra call)</span>
+                        </label>
+                        <label class="checkbox_label" title="When a chapter ends (a Turn or Upheaval lands), run one extra call that merges duplicates, repurposes orphaned seeds and checks the rolling horizon.">
+                            <input type="checkbox" id="rpg_campaign_consolidate" checked />
+                            <span>Consolidate the Ledger when a chapter ends (extra call)</span>
+                        </label>
+                        <label style="font-size: 0.85em;" for="rpg_campaign_lookback">Chronicler reads this many earlier messages</label>
+                        <input id="rpg_campaign_lookback" type="number" min="0" max="20" class="text_pole" style="width: 80px;" />
+                        <label style="font-size: 0.85em;" for="rpg_campaign_architect_prompt">Architect system prompt override</label>
+                        <textarea id="rpg_campaign_architect_prompt" class="text_pole" rows="3" placeholder="Leave empty to use the shipped Architect prompt (it must still return the same JSON)."></textarea>
+                        <label style="font-size: 0.85em;" for="rpg_campaign_chronicler_prompt">Chronicler / Director system prompt override</label>
+                        <textarea id="rpg_campaign_chronicler_prompt" class="text_pole" rows="3" placeholder="Leave empty to use the shipped Chronicler prompt (it must still return ops + brief JSON)."></textarea>
+                        <div class="inline-drawer">
+                            <div class="inline-drawer-toggle inline-drawer-header">
+                                <b>Chronicler Connection</b>
+                                <div class="inline-drawer-icon fa-solid fa-circle-down down"></div>
+                            </div>
+                            <div class="inline-drawer-content">
+                                <div class="flex-container flexFlowColumn gap-1">
+                                    <label>Connection Source</label>
+                                    <select id="rpg_campaign_chronicler_connection_source" class="text_pole">
+                                        <option value="default">Main API</option>
+                                        <option value="profile">Connection Profile (recommended)</option>
+                                        <option value="ollama">Ollama</option>
+                                        <option value="openai">OpenAI</option>
+                                    </select>
+                                    <div id="rpg_campaign_chronicler_profile_group" style="display:none;">
+                                        <select id="rpg_campaign_chronicler_connection_profile" class="text_pole"></select>
+                                    </div>
+                                    <div id="rpg_campaign_chronicler_ollama_group" style="display:none;">
+                                        <input id="rpg_campaign_chronicler_ollama_url" type="text" class="text_pole" placeholder="URL" />
+                                        <div class="flex-container gap-1">
+                                            <select id="rpg_campaign_chronicler_ollama_model" class="text_pole" style="flex:1;"></select>
+                                            <button id="rpg_campaign_chronicler_ollama_refresh" class="menu_button interactable" title="Refresh Ollama models"><i class="fa-solid fa-arrows-rotate"></i></button>
+                                        </div>
+                                    </div>
+                                    <div id="rpg_campaign_chronicler_openai_group" style="display:none;">
+                                        <input id="rpg_campaign_chronicler_openai_url" type="text" class="text_pole" placeholder="URL" />
+                                        <input id="rpg_campaign_chronicler_openai_key" type="password" class="text_pole" placeholder="Key" />
+                                        <div class="flex-container gap-1">
+                                            <select id="rpg_campaign_chronicler_openai_model" class="text_pole" style="flex:1;"></select>
+                                            <button id="rpg_campaign_chronicler_openai_refresh" class="menu_button interactable" title="Refresh OpenAI-compatible models"><i class="fa-solid fa-arrows-rotate"></i></button>
+                                        </div>
+                                        <input id="rpg_campaign_chronicler_openai_model_manual" type="text" class="text_pole" placeholder="Manual Model Name" />
+                                    </div>
+                                    <label>Preset</label>
+                                    <select id="rpg_campaign_chronicler_completion_preset" class="text_pole"></select>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="inline-drawer">
+                            <div class="inline-drawer-toggle inline-drawer-header">
+                                <b>Architect Connection</b>
+                                <div class="inline-drawer-icon fa-solid fa-circle-down down"></div>
+                            </div>
+                            <div class="inline-drawer-content">
+                                <div class="flex-container flexFlowColumn gap-1">
+                                    <label>Connection Source</label>
+                                    <select id="rpg_campaign_architect_connection_source" class="text_pole">
+                                        <option value="default">Main API</option>
+                                        <option value="profile">Connection Profile (recommended)</option>
+                                        <option value="ollama">Ollama</option>
+                                        <option value="openai">OpenAI</option>
+                                    </select>
+                                    <div id="rpg_campaign_architect_profile_group" style="display:none;">
+                                        <select id="rpg_campaign_architect_connection_profile" class="text_pole"></select>
+                                    </div>
+                                    <div id="rpg_campaign_architect_ollama_group" style="display:none;">
+                                        <input id="rpg_campaign_architect_ollama_url" type="text" class="text_pole" placeholder="URL" />
+                                        <div class="flex-container gap-1">
+                                            <select id="rpg_campaign_architect_ollama_model" class="text_pole" style="flex:1;"></select>
+                                            <button id="rpg_campaign_architect_ollama_refresh" class="menu_button interactable" title="Refresh Ollama models"><i class="fa-solid fa-arrows-rotate"></i></button>
+                                        </div>
+                                    </div>
+                                    <div id="rpg_campaign_architect_openai_group" style="display:none;">
+                                        <input id="rpg_campaign_architect_openai_url" type="text" class="text_pole" placeholder="URL" />
+                                        <input id="rpg_campaign_architect_openai_key" type="password" class="text_pole" placeholder="Key" />
+                                        <div class="flex-container gap-1">
+                                            <select id="rpg_campaign_architect_openai_model" class="text_pole" style="flex:1;"></select>
+                                            <button id="rpg_campaign_architect_openai_refresh" class="menu_button interactable" title="Refresh OpenAI-compatible models"><i class="fa-solid fa-arrows-rotate"></i></button>
+                                        </div>
+                                        <input id="rpg_campaign_architect_openai_model_manual" type="text" class="text_pole" placeholder="Manual Model Name" />
+                                    </div>
+                                    <label>Preset</label>
+                                    <select id="rpg_campaign_architect_completion_preset" class="text_pole"></select>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

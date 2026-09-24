@@ -177,6 +177,7 @@ When you send a message, the framework finds the last user message and can prepe
 
 - `[PLAYER_CHARACTER]` (if linked)
 - `[ORIGIN]` (if the chat was started with Origin Start) — recognition, pressure levers, pursuers, runtime rules, and hidden origin secrets
+- `[CAMPAIGN]` (if the chat has a four-act campaign) — the Director's Brief for this reply plus the Narrator's campaign rules; see **Campaign Director**
 - `[NPC_RELATIONS]`
 - An **RNG Queue** block (when Pre-Seeded RNG applies — see Hybrid RNG)
 - `### STATE MEMO (DO NOT REPEAT)` — the **previous** turn’s tracked state
@@ -194,6 +195,7 @@ On generation end (skipped for quiet/impersonate, while a pass is already runnin
 2. **State Tracker** pass (throttled by “run every N”; default every turn) — parses the new narrative and updates the memo.
 3. **Combat API Override** sync (switch/restore narrator profile if combat started/ended).
 4. Dynamic RNG prompt sync (Hybrid mode combat boundary).
+4b. **Campaign Chronicler** (only in chats with a campaign) — records what the reply did in the hidden Ledger and pre-writes the next Brief.
 5. **Map Updater** occupancy (if Persistent Maps is on and its run-every threshold is met).
 6. **World Progression** TIME check (deterministic; see that section).
 7. **Map Evolution** — checks the normal 8-hour default interval/site-exit cadence for the configured map pool (current map, N maps, every due mapped site by default, or a selected checklist), lazily interpreting relevant unconsumed World Report prose when a map actually evolves.
@@ -204,6 +206,29 @@ Important: the State Tracker runs **after** the reply. The memo injected on the 
 Auto State Tracker / Lorebook Agent passes only run when the **latest assistant message is from `{{char}}`** (the active character card). Other speakers — e.g. a `/sendas` announcement character like “System Notifications” — do not tick run-every or fire auto passes.
 
 `/sendas` itself does **not** emit `GENERATION_ENDED`, so it normally does not auto-trigger Lorebook Agent; use `/lorebookagent` manually after announcement-only turns (or after any non-`{{char}}` beat you still want chronicled).
+
+---
+
+## Campaign Director (four-act campaigns)
+
+An optional, per-chat campaign structure modeled on Baldur's Gate 3: four acts (Discovery, Descent, Convergence, Reckoning, plus an optional epilogue), each with its own territory, tone, face antagonist and a guaranteed climax (a **Pillar**), and a world that moves on its own.
+
+**Starting one.** Use **Set up a four-act campaign first** in Origin Start, click the offer toast after Instant Action, use **Begin campaign in this chat** in the **Campaign Director** settings drawer, or type `/campaign begin`. Session zero asks for tone and references, things you want to meet, hard limits, campaign length, dice style, and whether the protagonist can die. The **Architect** then builds the campaign; you see and can edit only the **Visible tier** — premise, tone, starting situation and the companions' surface personalities — then approve or regenerate it. Everything else (acts, arcs, antagonists, the ambiguous ally's hidden goal, secrets) stays hidden. A campaign can also start in a chat that is already underway: what has happened so far becomes Canon.
+
+**Every turn.**
+- *Before the reply:* the **Brief** written after the previous reply is injected as `[CAMPAIGN]`: target tension (1 Calm … 5 Crisis), tempo (**Rush** compresses, **Flow** is conversational, **Linger** expands a moment), what to plant, show or pay off, an optional dice check, what to keep hidden, and the decision point to end on. Tempo also drives narrative pacing: Rush uses shorter outputs, a Rest beat uses slice-of-life pacing. Type `(( rush ))`, `(( flow ))`, `(( linger ))` or `(( rest ))` in your message to override it — overrides always win.
+- *After the reply:* the **Chronicler** (one call, which also acts as the Director) records what happened as Ledger operations — scene boundaries, clock ticks, Seeds, Signs, Shifts, Canon, arcs, NPCs, companions — and plans the next Brief. Code checks every operation: clocks stay within their segments, a full clock must be resolved, Canon never changes, and a plot payoff is held back (shown as a warning Sign instead) unless it was seeded: a Ripple needs a Seed, a Turn a Seed at least two scenes old plus a Sign, an Upheaval three Seeds across two chapters plus a Sign. Rhythm rules are enforced too: after three high-tension scenes the next one drops; four flat scenes in a row get changed; after three negative Turns the player gets a real opening.
+- A one-line **Pulse** (for example `PULSE | T3→4 | Flow | Act1·Orbit | ticks: C05 4/6 | …`) is stored on each reply, and the Ledger is snapshotted per reply, so **swipes and deletions roll the campaign back** with the chat.
+
+**The living world.** Factions, threats, pursuers, companion crises and undiscovered (Dormant) arcs run on **clocks** that tick with in-fiction time — at least one ticks every scene boundary. When a clock fills its Shift happens off-screen and reaches you only through the world (rumors, evidence, changed places, messengers). Off-screen developments are also handed to **World Progression** as directives, which then describe how the affected places look now. Random events are switched off in campaign chats (and restored if the campaign ends) because clocks and Signs replace them.
+
+**Quests.** Arcs you discover can surface as ordinary quests in the quest log through the narrator's usual `(Quest Accepted: …)` / `(Emergent Quest Active: …)` lines.
+
+**Origins.** A chat started with Origin Start feeds the campaign: pressure levers become clocks owned by the character, pursuers become factions with clocks (their awareness sets the starting position), the recognition lever becomes an NPC reaction rule, the personal quests become the Origin arc, and origin secrets become hidden facts revealed as Upheavals.
+
+**Acts.** When an act's Pillar resolves, the way forward becomes a point of no return. When you cross it, a confirmation appears (*"This ends Act N. Unfinished threads here will resolve without you. Continue?"*). On confirming, the Architect resolves the act's undiscovered threads off-screen, details the next act from everything that actually happened, and the next act opens with an **Interlude**.
+
+**Commands and settings.** `/campaign` shows the Visible tier; `/campaign peek` shows the hidden Ledger, Brief and last Pulse while **Debug Mode** is on; `/campaign act` asks to cross into the next act; `/campaign end` stops the campaign. The **Campaign Director** drawer has the optional **Re-direct** (one short call before a reply when you jump scenes or use an override), **Consolidate** (one extra call when a chapter ends to merge duplicates and repurpose orphaned Seeds), the Chronicler lookback, and prompt overrides. The **Campaign Chronicler** and **Campaign Architect** have their own entries in **Connections & Models**; give the Architect your strongest model.
 
 ---
 

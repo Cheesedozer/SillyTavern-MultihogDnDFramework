@@ -512,6 +512,11 @@ export function computeBundledPromptsFingerprintForSnapshot(snapshot) {
 const CARTRIDGE_PAYLOAD_KEYS = [
     'originInjectEnabled',
     'originArchitectSystemPrompt',
+    'campaignRedirectEnabled',
+    'campaignConsolidateEnabled',
+    'campaignChroniclerLookback',
+    'campaignArchitectSystemPrompt',
+    'campaignChroniclerSystemPrompt',
     'customSyspromptLibrary',
     'syspromptSectionOrder',
     'syspromptModules',
@@ -651,6 +656,12 @@ export const CARTRIDGE_PAYLOAD_GROUPS = [
         label: 'Origin System',
         description: 'Origin Architect prompt override and the per-turn [ORIGIN] injection toggle',
         keys: ['originInjectEnabled', 'originArchitectSystemPrompt'],
+    },
+    {
+        id: 'campaign',
+        label: 'Campaign Director',
+        description: 'Four-act campaign prompt overrides, re-direct, consolidation and Chronicler lookback',
+        keys: ['campaignRedirectEnabled', 'campaignConsolidateEnabled', 'campaignChroniclerLookback', 'campaignArchitectSystemPrompt', 'campaignChroniclerSystemPrompt'],
     },
     {
         id: 'worldProgression',

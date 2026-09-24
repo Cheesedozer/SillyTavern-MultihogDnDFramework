@@ -66,7 +66,7 @@ export function createOriginDraft(overrides = {}) {
         className: '__story__', classOther: '', level: 1, gearTier: 'auto',
         // Output options
         questCount: ORIGIN_QUEST_COUNT_DEFAULT, wordCount: 150,
-        createStPersona: true, sendStarter: true,
+        createStPersona: true, sendStarter: true, beginCampaign: true,
     };
     return deepMerge(draft, overrides || {});
 }

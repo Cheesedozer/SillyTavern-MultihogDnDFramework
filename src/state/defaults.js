@@ -407,6 +407,45 @@ export function buildDefaultSettings() {
 
         originArchitectSystemPrompt: '',
 
+        /** Four-act campaign (Campaign Structure): optional pre-generation re-direct when the player breaks the Brief. */
+
+        campaignRedirectEnabled: false,
+
+        /** Consolidate the Ledger with one extra call when a chapter ends (a Turn or Upheaval lands). */
+
+        campaignConsolidateEnabled: true,
+
+        /** Messages before the player's newest one that the Chronicler reads. */
+
+        campaignChroniclerLookback: 4,
+
+        /** Newest AI messages that keep full Ledger snapshots for swipe/delete rollback. */
+
+        campaignSnapshotLimit: 12,
+
+        /** Prompt overrides; empty uses the shipped prompts. */
+
+        campaignArchitectSystemPrompt: '',
+        campaignChroniclerSystemPrompt: '',
+
+        /** Campaign Chronicler (after every reply) and Architect (session zero, act transitions) connections. */
+        campaignChroniclerConnectionSource: 'default',
+        campaignChroniclerConnectionProfileId: '',
+        campaignChroniclerCompletionPresetId: '',
+        campaignChroniclerOllamaUrl: 'http://localhost:11434',
+        campaignChroniclerOllamaModel: '',
+        campaignChroniclerOpenaiUrl: '',
+        campaignChroniclerOpenaiKey: '',
+        campaignChroniclerOpenaiModel: '',
+        campaignArchitectConnectionSource: 'default',
+        campaignArchitectConnectionProfileId: '',
+        campaignArchitectCompletionPresetId: '',
+        campaignArchitectOllamaUrl: 'http://localhost:11434',
+        campaignArchitectOllamaModel: '',
+        campaignArchitectOpenaiUrl: '',
+        campaignArchitectOpenaiKey: '',
+        campaignArchitectOpenaiModel: '',
+
         barColors: {},
 
         animateAllCustomBarChanges: true,
