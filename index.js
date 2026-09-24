@@ -23,6 +23,7 @@ import { loadPanelGeometry, loadDeltaHeight, makeDraggable, makeResizableTR, mak
 import { applyCustomTheme, openThemeWizard, refreshSavedThemesList, handleRecolor, undoThemeChange } from './theme-manager.js';
 import { showCharacterRollPanel, showPcImportPanel, handleCharacterCreatorGenerate, generatePersonaBio, showPersonaConfirmOverlay, extractCharNameFromMemo, activateSillyTavernPersona } from './character-creator.js';
 import { showOriginPanel, registerOriginSlashCommand } from './src/features/origin/origin-wizard.js';
+import { registerCampaignSlashCommand, installCampaignEventHandlers, bindCampaignDirectorSettings } from './src/features/campaign/campaign-settings.js';
 import { createOrSelectGameMasterCard, resolveNarratorCardName } from './src/ui/game-master-card.js';
 import { bindCharacterCreationConnectionSettings, getCharacterCreationConnectionSettings } from './character-creation-connection.js';
 import { bindQuickStartEvents } from './quickstart.js';
@@ -5945,6 +5946,8 @@ const CONNECTION_SETTINGS_UI = [
     { key: 'map_runtime', control: '#rpg_map_runtime_connection_source', slot: '#rpg_connection_slot_map_runtime', label: 'Map Updater', recommendation: 'Occupancy can use a cheaper model than Map Architect. JSON discipline still helps.' },
     { key: 'map_evolution', control: '#rpg_map_evolution_connection_source', slot: '#rpg_connection_slot_map_evolution', label: 'Map Evolution' },
     { key: 'world_progression', control: '#rpg_world_connection_source', slot: '#rpg_connection_slot_world_progression', label: 'World Progression' },
+    { key: 'campaign_chronicler', control: '#rpg_campaign_chronicler_connection_source', slot: '#rpg_connection_slot_campaign_chronicler', label: 'Campaign Chronicler', recommendation: 'Runs after every reply and plans the next one. A capable model with reliable JSON output works best; it reads the whole hidden Ledger.' },
+    { key: 'campaign_architect', control: '#rpg_campaign_architect_connection_source', slot: '#rpg_connection_slot_campaign_architect', label: 'Campaign Architect', recommendation: 'Runs at session zero and at act transitions only. Use your strongest model; it plans the whole campaign.' },
     { key: 'portraits', control: '#rpg_portrait_connection_source', slot: '#rpg_connection_slot_portraits', label: 'Portrait Generation', recommendation: 'A lightweight model should do fine.' },
 ];
 
@@ -6243,6 +6246,10 @@ function organizeConnectionSettingsUI() {
             settings,
             presetManager: pm,
         });
+        for (const [uiPrefix, keyPrefix] of [['rpg_campaign_chronicler', 'campaignChronicler'], ['rpg_campaign_architect', 'campaignArchitect']]) {
+            await bindFeatureConnectionSettings({ uiPrefix, keyPrefix, settings, presetManager: pm });
+        }
+        bindCampaignDirectorSettings(settings);
         applyMapArchitectOpenerToUi(settings.mapArchitectOpener);
         syncMapArchitectOpenerNestedVisibility(settings.syspromptModules?.[LOCATION_MAPPING_SECTION_TAG] ?? true);
         $('input[name="rpg_map_architect_opener"], input[name="rpg_map_architect_opener_components"]').on('change', function () {
@@ -8035,6 +8042,8 @@ function organizeConnectionSettingsUI() {
         syncLocationMappingRuntime();
         registerDiceSlashCommand();
         registerOriginSlashCommand();
+        registerCampaignSlashCommand();
+        installCampaignEventHandlers();
 
         // ─── Quest System ───
         import('./quests.js').then(({ unregisterLogQuestTool, installQuestDebugTools, computeFrustration }) => {

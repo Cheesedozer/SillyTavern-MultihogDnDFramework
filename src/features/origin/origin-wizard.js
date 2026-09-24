@@ -22,6 +22,7 @@ import {
 } from '../../../character-creator.js';
 import { applyQuickStartConfiguration, sendOutgoingChatMessage } from '../../../quickstart.js';
 import { getCharacterCreationConnectionSettings } from '../../../character-creation-connection.js';
+import { openCampaignSessionZero } from '../campaign/campaign-runtime.js';
 import { saveSettings } from '../../app/runtime-bridge.js';
 import { createChatCommitGuard } from '../../state/pass-affinity.js';
 import { pickGenreCharacterName } from '../../state/character-names.js';
@@ -264,7 +265,8 @@ function renderOutput(draft) {
         field('Origin arc length', selectHtml('questCount', String(draft.questCount), quests, { placeholder: '—' }), { help: 'How many personal quests the origin arc has. The campaign system plans them later.' }),
         field('Player Card length', selectHtml('wordCount', String(draft.wordCount), words, { placeholder: '—' })),
     ) + boolHtml('createStPersona', draft.createStPersona, 'Create ST Persona (name only)')
-      + boolHtml('sendStarter', draft.sendStarter, 'Send starter message (the AI opens the first scene)');
+      + boolHtml('sendStarter', draft.sendStarter, 'Send starter message (the AI opens the first scene)')
+      + boolHtml('beginCampaign', draft.beginCampaign, 'Set up a four-act campaign first (session zero: pursuers, pressures and secrets become clocks, factions and arcs)');
 }
 
 function renderValidation(draft) {
@@ -541,6 +543,11 @@ export async function runOriginStart(rootEl) {
 
         getSettings().originPanelOpen = false;
         saveSettings();
+        if (draft.beginCampaign) {
+            status('Session zero — building your campaign…');
+            await openCampaignSessionZero({ origin: record, source: 'origin' });
+            if (!ownsChat()) throw stopped();
+        }
         if (draft.sendStarter) {
             status('Starting adventure…');
             sendOutgoingChatMessage(buildOriginOpeningMessage(record));

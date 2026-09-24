@@ -21,6 +21,8 @@ describe('connection setup apply-to-all', () => {
             'map_runtime',
             'map_evolution',
             'world_progression',
+            'campaign_chronicler',
+            'campaign_architect',
             'portraits',
         ]);
         expect(keys).not.toContain('combat_override');

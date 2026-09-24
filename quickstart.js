@@ -17,6 +17,7 @@ import {
     resolveInstantActionStartingLevel,
 } from './src/state/instant-action-instructions.js';
 import { createChatCommitGuard } from './src/state/pass-affinity.js';
+import { offerCampaignSetup } from './src/features/campaign/campaign-runtime.js';
 
 /** @type {boolean} */
 let _quickStartRunning = false;
@@ -212,6 +213,7 @@ export async function runQuickStart(genre, rootEl = null, selectedName = '', ins
             setQuickStartStatus(root, `Ready — ${charName} (${readyDetail}). Type your first action.`);
         }
         toastr['success'](`Quick Start ready: ${charName} · ${readyDetail}`, 'Quick Start');
+        offerCampaignSetup();
     } catch (err) {
         const msg = err?.message || String(err);
         console.error('[Quick Start]', err);

@@ -9,6 +9,17 @@ All notable changes to the **Multihog D&D Framework** will be documented in this
 - An Origin Architect pass fills blanks, derives the nation, instantiates pursuers, and creates hidden secrets. The start then produces the usual character sheet, Lorebook Agent Player Card, name-only persona, and an optional opening scene.
 - A per-chat `[ORIGIN]` block is injected every narrator turn with the character's recognition lever, pressure levers, pursuers, runtime rules, and hidden secrets. `/origin` shows the chat's origin (secrets only in Debug Mode); `/origin clear` removes it.
 - Game Cartridges carry the Origin System settings (injection toggle and Origin Architect prompt override).
+- **Campaign Director** (four-act campaigns in the style of Baldur's Gate 3), per chat and for any start type:
+  - Session zero: an intake form, then an Architect pass that builds the whole campaign skeleton. You edit and approve only the premise, tone, starting situation and companions.
+  - After every reply, one Chronicler/Director call records what happened as operations on a hidden Ledger and pre-writes the next reply's Brief (tension, Rush/Flow/Linger tempo, what to plant, show or pay off, dice checks, the decision point to end on).
+  - Code enforces the rules on that Ledger: clock bounds and minimum movement, Seed → Sign → Shift prerequisites, append-only Canon, contrast/anti-flatness/polarity-balance rhythm, act tension ranges, and the telegraph rule.
+  - `(( rush ))`, `(( flow ))`, `(( linger ))` and `(( rest ))` overrides. Tempo drives narrative pacing, random events are replaced by clocks, discovered arcs surface as quests, and off-screen Shifts become World Progression directives.
+  - A per-reply Pulse and Ledger snapshot make swipes and deletions roll the campaign back. Act transitions ask for confirmation, then resolve the ending act's undiscovered threads and rebuild the next act.
+  - Origin records become clocks, factions, reaction rules, the Origin arc and hidden Upheavals.
+  - `/campaign` (status, begin, end, act, peek), a Campaign Director settings drawer, optional re-direct and consolidation calls, and Chronicler/Architect connection slots included in Apply to All and Game Cartridges.
+
+### Fixed
+- The `[ORIGIN]` block (which carries hidden origin secrets) is no longer added to quiet generations such as SillyTavern's Summarize, which could have surfaced the secrets in a summary.
 
 ## [2026.8.94] - 2026-09-23
 
