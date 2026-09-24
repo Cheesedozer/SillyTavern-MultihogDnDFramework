@@ -321,6 +321,10 @@ export function bindRenderedCardEvents(el, memo, isDetachedContext = false, onRe
                 showPcImportPanel(el);
                 return;
             }
+            if (archetype === 'origin') {
+                runtime.showOriginPanel?.(el);
+                return;
+            }
             // Persona derives its identity from the active ST Persona and never
             // requires the separate rolled-name field.
             const requiresRolledName = archetype !== 'persona';

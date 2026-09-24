@@ -315,6 +315,37 @@ export async function generateQuickStartCharacter(opts) {
 }
 
 /**
+ * Generate and commit a character sheet from arbitrary Character Creator prompt
+ * fields (used by the Origin start, which fills far more fields than Quick Start).
+ * @param {Parameters<typeof buildCharacterGenerationPrompt>[0]} promptOpts
+ * @param {{ chatId?: string|null, canCommit?: () => boolean }} [opts]
+ * @returns {Promise<{ charName: string, passChatId: string|null }>}
+ */
+export async function generateCharacterSheet(promptOpts, opts = {}) {
+    const s = getSettings();
+    const memoBefore = s.currentMemo || '';
+    const passChatId = opts.chatId ?? getActiveChatId();
+    const ownsChat = opts.canCommit || createChatCommitGuard(passChatId, getActiveChatId);
+    if (!ownsChat()) throw new Error('Character generation stopped because the active chat changed.');
+    const { prompt } = buildCharacterGenerationPrompt(promptOpts);
+
+    const result = await sendDirectPrompt(prompt, {
+        systemPromptMode: 'modules_only',
+        connectionSettings: getCharacterCreationConnectionSettings(s),
+    });
+    assertDirectPromptOwned(result);
+    if (!ownsChat()) {
+        throw new Error('Character generation stopped because the active chat changed or the request was cancelled.');
+    }
+
+    const memoAfter = getSettings().currentMemo || '';
+    if (!memoAfter || memoAfter === memoBefore || !/\[CHARACTER\]/i.test(memoAfter)) {
+        throw new Error('Character generation failed — State Model returned no character sheet. Check your API connection.');
+    }
+    return { charName: extractCharNameFromMemo(memoAfter) || promptOpts.nameVal || 'My Character', passChatId };
+}
+
+/**
  * Insert (or replace) the Player Card in the Lorebook Agent for the active chat.
  * @param {string} name
  * @param {string} bio

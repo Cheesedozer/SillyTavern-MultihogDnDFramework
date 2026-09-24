@@ -510,6 +510,8 @@ export function computeBundledPromptsFingerprintForSnapshot(snapshot) {
  * export/import logic that operates on this shape.
  */
 const CARTRIDGE_PAYLOAD_KEYS = [
+    'originInjectEnabled',
+    'originArchitectSystemPrompt',
     'customSyspromptLibrary',
     'syspromptSectionOrder',
     'syspromptModules',
@@ -643,6 +645,12 @@ export const CARTRIDGE_PAYLOAD_GROUPS = [
         label: 'Map Architect',
         description: 'Dedicated hidden-site generation, occupancy, and off-screen evolution prompts',
         keys: ['mapArchitectSystemPrompt', 'mapUpdaterSystemPrompt', 'mapEvolutionSystemPrompt', 'mapEvolutionCompressSystemPrompt'],
+    },
+    {
+        id: 'origins',
+        label: 'Origin System',
+        description: 'Origin Architect prompt override and the per-turn [ORIGIN] injection toggle',
+        keys: ['originInjectEnabled', 'originArchitectSystemPrompt'],
     },
     {
         id: 'worldProgression',

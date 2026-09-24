@@ -2015,6 +2015,8 @@ function formatValueToCurrency(totalCp, detectedCurrency) {
                 <div class="rt-onboarding-hero">
                     <button type="button" class="rt-onboarding-hero-btn rt-random-char-btn" data-archetype="char_roll">🎲 Character Creator</button>
                     <div class="rt-onboarding-hero-sub">Build your character step by step — presets, Lorebook Player Card, and full stat generation.</div>
+                    <button type="button" class="rt-onboarding-hero-btn rt-random-char-btn rt-origin-start-btn" data-archetype="origin">🏰 Origin Start</button>
+                    <div class="rt-onboarding-hero-sub">Fantasy: begin as an Exiled Royal, Vampire Lord, Oathbreaker Knight or five other origins — with pursuers, pressures, and secrets even your character doesn't know.</div>
                 </div>
 
                 <div class="rt-quickstart" id="rt-quickstart">
@@ -2207,6 +2209,9 @@ function formatValueToCurrency(totalCp, detectedCurrency) {
                     <input id="rt-pc-import-search" type="text" placeholder="Search characters..." style="width:100%; background:rgba(0,0,0,0.3); color:white; border:1px solid rgba(255,255,255,0.15); border-radius:5px; padding:5px 8px; font-size:12px; box-sizing:border-box;">
                     <div id="rt-pc-import-list" style="display:flex; flex-direction:column; gap:4px; max-height:200px; overflow-y:auto; padding-right:2px;"></div>
                 </div>
+
+                <!-- Origin Start wizard (hidden until 🏰 is clicked; rendered by origin-wizard.js) -->
+                <div id="rt-origin-panel" class="rt-origin-panel" style="display:none; flex-direction:column; gap:7px; width:100%; flex-shrink:0;"></div>
 
                 <!-- Character Roll Inline Panel (hidden until 🎲 is clicked) -->
                 <div id="rt-char-roll-panel" style="display:none; flex-direction:column; gap:7px; width:100%; flex-shrink:0;">

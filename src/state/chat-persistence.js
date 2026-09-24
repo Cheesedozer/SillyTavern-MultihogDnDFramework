@@ -52,6 +52,7 @@ function chatStateSubstanceScore(state) {
         score += Math.min(Object.keys(state.dungeonReality.sites).length, 20);
     }
     if (state.playerCharacter) score += 4;
+    if (state.origin) score += 4;
     if (Array.isArray(state.adventureCompanion?.history)) {
         score += Math.min(state.adventureCompanion.history.length, 20);
     }
@@ -595,6 +596,10 @@ export function saveChatState(chatId, opts = {}) {
 
         // Preserve Player Character pseudo-persona which is injected into the chat state
         playerCharacter: existing.playerCharacter,
+
+        // Origin System record (profile, levers, pursuers, hidden secrets) — written
+        // once by the Origin Start pipeline, never from the live projection.
+        origin: existing.origin,
 
         // Authored directly in this partition by the narrative interceptor.
         dungeonReality: existing.dungeonReality ? JSON.parse(JSON.stringify(existing.dungeonReality)) : null,
