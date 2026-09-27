@@ -413,7 +413,8 @@ function bindOriginPanel(rootEl, panel) {
             setDraft(next);
             renderOriginPanel(panel);
         } else if (action === 'roll-name') {
-            setDraft(setDraftPath(draft, 'name', pickGenreCharacterName('fantasy')));
+            const race = draft.race === 'custom' ? draft.customRace?.name : draft.race;
+            setDraft(setDraftPath(draft, 'name', pickGenreCharacterName('fantasy', { gender: draft.gender, race })));
             renderOriginPanel(panel);
         } else if (action === 'family-add') {
             setDraft(setDraftPath(draft, 'family', [...draft.family, { name: '', relation: '', fate: '' }]));

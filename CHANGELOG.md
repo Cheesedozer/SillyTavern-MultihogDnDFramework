@@ -18,6 +18,10 @@ All notable changes to the **Multihog D&D Framework** will be documented in this
   - Origin records become clocks, factions, reaction rules, the Origin arc and hidden Upheavals.
   - `/campaign` (status, begin, end, act, peek), a Campaign Director settings drawer, optional re-direct and consolidation calls, and Chronicler/Architect connection slots included in Apply to All and Game Cartridges.
 
+### Changed
+- **Grounded fantasy names**: the 🎲 name buttons (Origin Start, Character Creator, and the Fantasy genre in Instant Action / Other Ways to Begin) now build names from ten real medieval naming traditions instead of a small list of high-fantasy clichés. Names use surnames, a father's name, a home place, a trade or nickname, or a single name, and each roll mostly stays within one culture. Origin Start and Character Creator follow the Gender field and race/species (dwarves lean Norse, elves Welsh/Gaelic, tieflings get virtue names, orcs, goliaths, dragonborn and Silkborn have their own lists). Borrowed franchise names (*Gimli*, *Sylvanas*…) are gone, and rerolls avoid the last 20 names.
+- Character Creator's 🎲 follows its Genre dropdown instead of mixing every genre's names together.
+
 ### Fixed
 - The `[ORIGIN]` block (which carries hidden origin secrets) is no longer added to quiet generations such as SillyTavern's Summarize, which could have surfaced the secrets in a summary.
 

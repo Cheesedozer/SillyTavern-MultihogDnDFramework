@@ -1,48 +1,38 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
-    CHARACTER_CREATOR_NAME_ADDITIONS,
     CHARACTER_NAME_POOLS,
     pickGenreCharacterName,
 } from '../src/state/character-names.js';
 
 describe('genre character-name pools', () => {
-    it('keeps the supplied names in their matching genre pools', () => {
-        expect(CHARACTER_NAME_POOLS.fantasy.firstNames).toContain('Aurelia');
-        expect(CHARACTER_NAME_POOLS.fantasy.surnames).toContain('Moonwhisper');
+    it('keeps the non-fantasy pools and drops the static fantasy pool', () => {
         expect(CHARACTER_NAME_POOLS.realistic.firstNames).toContain('Harper');
         expect(CHARACTER_NAME_POOLS.realistic.surnames).toContain('Callahan');
         expect(CHARACTER_NAME_POOLS.scifi.firstNames).toContain('ARIA-7');
-        expect(CHARACTER_NAME_POOLS.scifi.surnames).toContain('Nova Prime');
-        expect(CHARACTER_NAME_POOLS.horror.firstNames).toContain('Bartholomew');
         expect(CHARACTER_NAME_POOLS.horror.surnames).toContain('Wormwood');
+        expect(CHARACTER_NAME_POOLS.fantasy).toBeUndefined();
     });
 
-    it('chooses a first-name / surname combination from the requested genre', () => {
-        expect(pickGenreCharacterName('fantasy', () => 0)).toBe('Aurelia Blackwood');
-        expect(pickGenreCharacterName('realistic', () => 0)).toBe('Eleanor Miller');
-        expect(pickGenreCharacterName('scifi', () => 0)).toBe('Jax Vance');
-        expect(pickGenreCharacterName('horror', () => 0)).toBe('Abigail Blackwood');
-        expect(pickGenreCharacterName('unknown', () => 0)).toBe('Aurelia Blackwood');
+    it('chooses a first-name / surname combination from the requested non-fantasy genre', () => {
+        expect(pickGenreCharacterName('realistic', { random: () => 0, recent: [] })).toBe('Eleanor Miller');
+        expect(pickGenreCharacterName('scifi', { random: () => 0, recent: [] })).toBe('Jax Vance');
+        expect(pickGenreCharacterName('horror', { random: () => 0, recent: [] })).toBe('Abigail Blackwood');
     });
 
-    it('makes every genre pool available to the Character Creator random-name button', () => {
-        expect(CHARACTER_CREATOR_NAME_ADDITIONS.firstNames).toEqual(expect.arrayContaining([
-            'Aurelia', 'Harper', 'ARIA-7', 'Bartholomew',
-        ]));
-        expect(CHARACTER_CREATOR_NAME_ADDITIONS.surnames).toEqual(expect.arrayContaining([
-            'Blackwood', 'Hayes', 'Nexus', 'Wormwood',
-        ]));
-    });
-
-    it('does not retain excluded names in any generated pool', () => {
-        const allNames = Object.values(CHARACTER_NAME_POOLS)
-            .flatMap(pool => [...pool.firstNames, ...pool.surnames])
-            .concat(CHARACTER_CREATOR_NAME_ADDITIONS.firstNames, CHARACTER_CREATOR_NAME_ADDITIONS.surnames);
-        for (const excluded of ['Vane', 'Kaelen', 'Thorne', 'Valerius']) {
-            expect(allNames).not.toContain(excluded);
-            expect(allNames.some(name => name.includes(excluded))).toBe(false);
+    it('routes fantasy, empty and unknown genres to the grounded fantasy generator', () => {
+        for (const genre of ['fantasy', '', 'unknown']) {
+            const name = pickGenreCharacterName(genre, { random: () => 0, recent: [] });
+            expect(Object.values(CHARACTER_NAME_POOLS).some(pool => pool.firstNames.includes(name.split(' ')[0]))).toBe(false);
+            expect(name.length).toBeGreaterThan(0);
         }
+    });
+
+    it('avoids repeating a recent non-fantasy roll', () => {
+        const recent = ['Eleanor Miller'];
+        let calls = 0;
+        const name = pickGenreCharacterName('realistic', { random: () => (calls++ < 2 ? 0 : 0.5), recent });
+        expect(name).not.toBe('Eleanor Miller');
     });
 
     it('lets Instant Action use an optional typed/rolled name or let the AI choose', () => {
@@ -72,5 +62,15 @@ describe('genre character-name pools', () => {
         expect(cardEventsSource).toMatch(/const selectedName = selectedOnboardingName/);
         expect(cardEventsSource).toMatch(/clearOnboardingName\(\)/);
         expect(cardEventsSource).toContain('Roll a character name before generating.');
+    });
+
+    it('lets Character Creator and Origin Start roll with genre, gender and race', () => {
+        const creatorSource = readFileSync(new URL('../character-creator.js', import.meta.url), 'utf8');
+        const originSource = readFileSync(new URL('../src/features/origin/origin-wizard.js', import.meta.url), 'utf8');
+
+        expect(creatorSource).not.toContain('CHARACTER_CREATOR_NAME_ADDITIONS');
+        expect(creatorSource).not.toContain('Aethelgard');
+        expect(creatorSource).toMatch(/pickGenreCharacterName\(genreSelect\?\.value \|\| 'fantasy', \{ gender, race: species \}\)/);
+        expect(originSource).toMatch(/pickGenreCharacterName\('fantasy', \{ gender: draft\.gender, race \}\)/);
     });
 });

@@ -9,7 +9,7 @@ import {
     buildNameOnlyPersonaIdentity,
     resolveActivatedPersonaDescription,
 } from './src/state/player-identity.js';
-import { CHARACTER_CREATOR_NAME_ADDITIONS } from './src/state/character-names.js';
+import { pickGenreCharacterName } from './src/state/character-names.js';
 import { buildInstantActionPromptSection, extractInstantActionLevel, normalizeInstantActionInstructions } from './src/state/instant-action-instructions.js';
 import { findCharacterCreatorPresetByName, upsertCharacterCreatorPreset } from './src/features/character-creator/presets.js';
 import { getCharacterCreationConnectionSettings } from './character-creation-connection.js';
@@ -592,25 +592,10 @@ export function showCharacterRollPanel(el) {
     if (randomNameBtn && nameInput && !randomNameBtn._bound) {
         randomNameBtn._bound = true;
         randomNameBtn.addEventListener('click', () => {
-            const firsts = [
-                "Aethelgard", "Elysande", "Ilaria", "Lyari", "Mirelia", "Nesta", "Seraphina", "Thalia", "Valerith", "Zephira",
-                "Aelrin", "Calandil", "Elessar", "Faelan", "Galdor", "Ithilior", "Lorien", "Sylas", "Thandor", "Zoran",
-                "Astrid", "Bregna", "Dagmar", "Freja", "Gunnora", "Hilda", "Kira", "Morgath", "Sigrid", "Yrsa",
-                "Bram", "Cormac", "Drogo", "Fenrir", "Garrick", "Haldor", "Ragnar", "Thorgar", "Wulfric",
-                "Belial", "Carmilla", "Drusilla", "Lilith", "Malakor", "Morrigan", "Nox", "Sariel", "Vespera", "Xanthia",
-                "Alastor", "Caspian", "Darius", "Malakai", "Nekros", "Soren", "Zarek",
-                "Astraea", "Celestia", "Elora", "Isra", "Lunaria", "Nova", "Selene", "Solana", "Talia", "Vega",
-                "Aero", "Caelum", "Hyperion", "Orion", "Phobos", "Rigel", "Sirius", "Titan", "Zephyr", "Zion",
-                ...CHARACTER_CREATOR_NAME_ADDITIONS.firstNames,
-            ];
-            const lasts = [
-                "Blackwood", "Crownguard", "Ironclad", "Kingsley", "Silverglade", "Stormborn", "Winterborne", "Zephyr",
-                "Barker", "Clay", "Fletcher", "Miller", "Potter", "Smith", "Tanner", "Weaver", "Wood", "Wright",
-                ...CHARACTER_CREATOR_NAME_ADDITIONS.surnames,
-            ];
-            const first = firsts[Math.floor(Math.random() * firsts.length)];
-            const last = lasts[Math.floor(Math.random() * lasts.length)];
-            nameInput.value = `${first} ${last}`;
+            // Follows the genre dropdown; fantasy (or None) also follows Gender and Species.
+            const gender = /** @type {HTMLInputElement|null} */ (panel.querySelector('#rt-cr-gender'))?.value || '';
+            const species = /** @type {HTMLInputElement|null} */ (panel.querySelector('#rt-cr-species'))?.value || '';
+            nameInput.value = pickGenreCharacterName(genreSelect?.value || 'fantasy', { gender, race: species });
             nameInput.dispatchEvent(new Event('input', { bubbles: true }));
         });
     }
