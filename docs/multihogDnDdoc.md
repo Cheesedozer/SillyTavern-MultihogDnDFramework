@@ -125,7 +125,12 @@ Character-sheet generation sends the model only the active tracker-module instru
 
 You can also use **Character Creator** with explicit name/class/level/gear, or paste an existing sheet into **Raw View**. In **Other Ways to Begin**, select a genre and use **Roll Name** until you have the name you want — or type/edit it directly — before choosing **Custom**. The **Persona** path keeps the active SillyTavern persona name, while **Import Card** keeps the imported card’s name. Character Creator and Other Ways to Begin have separate toggles for a Lorebook Agent Player Card and a name-only ST persona. If formatting doesn’t match what the UI expects, use the tracker’s **💬** button and ask the model to fix it.
 
-The Character Creator random-name button uses the combined cross-genre name library without genre filtering. Random **Other Ways to Begin** generators use the matching genre pool and pass the selected full name to the character generator.
+The Character Creator random-name button follows its Genre dropdown. Random **Other Ways to Begin** generators use the matching genre and pass the selected full name to the character generator.
+
+**Fantasy names** (Fantasy genre, Character Creator with Fantasy or no genre, and Origin Start's 🎲) are built from ten real medieval naming traditions: Old English / Anglo-Norman, Norse, Gaelic, Welsh, Frankish, Occitan / Iberian, Italian, Slavic, Byzantine Greek and Persian / Levantine. That way a rolled name sounds like someone who lives in the world rather than a high-fantasy cliché. First names are curated. Most rolls are "First Surname", and the rest use a father's name (*Ingrid Haraldsdottir*, *Rhys ap Owain*), a home place (*Arnaut de Brassac*), a trade or nickname (*Wat the Miller*), or a single name. About one roll in ten borrows a family name from another culture, and about one in ten slightly alters a real first name.
+- **Gender**: if the Gender field reads as female or male (*woman*, *she/her*, *male*…), the name follows it. Otherwise either is possible.
+- **Race**: Origin Start's race and Character Creator's Species shift which cultures come up. Dwarves lean Norse / Old English / Slavic, elves Welsh / Gaelic / Occitan, halflings rustic English, gnomes Frankish / Italian with the occasional quoted nickname, aasimar Byzantine / Italian / Persian, and vampires Slavic / Byzantine / Frankish. Tieflings often get virtue names (*Mercy*, *Temperance*). Orcs, goliaths, dragonborn and Silkborn have short name lists of their own. Unrecognized races use human naming.
+- Rerolls avoid the last 20 names rolled in the session.
 
 ### Origin Start (fantasy)
 

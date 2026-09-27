@@ -1,23 +1,10 @@
-/** Genre-specific name pools used by random character generation. */
+import { generateFantasyName, secureRandom } from './fantasy-names.js';
+
+/**
+ * Name pools for the non-fantasy genres. Fantasy names are built by
+ * `generateFantasyName` from real medieval naming traditions instead.
+ */
 export const CHARACTER_NAME_POOLS = Object.freeze({
-    fantasy: Object.freeze({
-        firstNames: Object.freeze([
-            'Aurelia', 'Celestia', 'Evangeline', 'Isolde', 'Seraphina', 'Valeriana', 'Genevieve', 'Rosalind',
-            'Alistair', 'Balthazar', 'Cassian', 'Dorian', 'Gideon', 'Lucian', 'Percival', 'Thaddeus',
-            'Aerielle', 'Lirael', 'Melanthe', 'Nimue', 'Sylvanas', 'Yvaine',
-            'Aelion', 'Caelen', 'Faelar', 'Haldir', 'Theron', 'Zephyrus',
-            'Brida', 'Dagmar', 'Freya', 'Helga', 'Vala',
-            'Balin', 'Borin', 'Daelin', 'Gimli', 'Thorin', 'Ulfric',
-            'Lysandra', 'Elowen', 'Evadne', 'Cormac', 'Rowan', 'Tadhg', 'Fionnuala', 'Kieran', 'Ianthe', 'Silvan',
-        ]),
-        surnames: Object.freeze([
-            'Blackwood', 'Ironheart', 'Ravencrest', 'Winterborne', 'Hawthorn', 'Sterling',
-            'Moonwhisper', 'Sunstrider', 'Starweaver', 'Leafrunner', 'Swiftriver', 'Windrunner',
-            'Anvilbreaker', 'Deepforge', 'Ironfoot', 'Stonehewer', 'Coppervein', 'Bouldercrag',
-            'High-Tower', 'Star-Gazer', 'Sun-Shatter', 'Crown-Guard', 'Moon-Crest', 'Silver-Vein',
-            'Moss-Cloak', 'Green-Bough', 'Glen-Strider', 'River-Bend',
-        ]),
-    }),
     realistic: Object.freeze({
         firstNames: Object.freeze([
             'Eleanor', 'Clara', 'Audrey', 'Evelyn', 'Violet', 'Grace',
@@ -74,34 +61,35 @@ export const CHARACTER_NAME_POOLS = Object.freeze({
     }),
 });
 
-const FALLBACK_GENRE = 'fantasy';
-const unique = (items) => [...new Set(items)];
-
-/** Names contributed to Character Creator's genre-agnostic random-name button. */
-export const CHARACTER_CREATOR_NAME_ADDITIONS = Object.freeze({
-    firstNames: Object.freeze(unique(Object.values(CHARACTER_NAME_POOLS).flatMap(pool => pool.firstNames))),
-    surnames: Object.freeze(unique(Object.values(CHARACTER_NAME_POOLS).flatMap(pool => pool.surnames))),
-});
-
-/** @returns {number} a value in [0, 1) */
-function secureRandom() {
-    if (globalThis.crypto?.getRandomValues) {
-        const values = new Uint32Array(1);
-        globalThis.crypto.getRandomValues(values);
-        return values[0] / 0x100000000;
-    }
-    return Math.random();
-}
+/** Recent non-fantasy rolls, so rerolls do not repeat themselves. */
+const recentPoolNames = [];
+const RECENT_LIMIT = 20;
 
 /**
- * Choose a first-name / surname combination from one genre pool.
+ * Roll a character name for a genre. Fantasy (and any unknown or empty genre)
+ * uses the grounded fantasy generator; other genres pick from their pools.
  * @param {string} genre
- * @param {() => number} [random]
+ * @param {object} [options]
+ * @param {string} [options.gender] free-text gender (fantasy only)
+ * @param {string} [options.race] race id or free-text species (fantasy only)
+ * @param {() => number} [options.random]
+ * @param {string[]} [options.recent] names to avoid; defaults to this session's recent rolls
  * @returns {string}
  */
-export function pickGenreCharacterName(genre, random = secureRandom) {
-    const pool = CHARACTER_NAME_POOLS[genre] || CHARACTER_NAME_POOLS[FALLBACK_GENRE];
-    const first = pool.firstNames[Math.min(pool.firstNames.length - 1, Math.floor(random() * pool.firstNames.length))];
-    const surname = pool.surnames[Math.min(pool.surnames.length - 1, Math.floor(random() * pool.surnames.length))];
-    return `${first} ${surname}`;
+export function pickGenreCharacterName(genre, options = {}) {
+    const pool = CHARACTER_NAME_POOLS[genre];
+    if (!pool) return generateFantasyName(options).name;
+
+    const random = options.random || secureRandom;
+    const recent = options.recent || recentPoolNames;
+    let name = '';
+    for (let attempt = 0; attempt < 15; attempt++) {
+        const first = pool.firstNames[Math.min(pool.firstNames.length - 1, Math.floor(random() * pool.firstNames.length))];
+        const surname = pool.surnames[Math.min(pool.surnames.length - 1, Math.floor(random() * pool.surnames.length))];
+        name = `${first} ${surname}`;
+        if (!recent.includes(name)) break;
+    }
+    recent.push(name);
+    if (recent.length > RECENT_LIMIT) recent.splice(0, recent.length - RECENT_LIMIT);
+    return name;
 }
